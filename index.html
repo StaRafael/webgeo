@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGeo · Monitoramento de poços</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="style.css">
+
+<!-- Tela de entrar — mesma conta do Perfil de Sondagem (mesmo Supabase) -->
+<div id="auth-screen" hidden>
+  <div class="auth-card">
+    <div class="auth-brand">
+      <svg class="rail-mark" width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect x="1" y="17" width="24" height="7" rx="1" fill="var(--accent-tint)" stroke="var(--accent)" stroke-width="1.2"/>
+        <rect x="1" y="10" width="24" height="7" rx="1" fill="var(--surface)" stroke="var(--line-strong)" stroke-width="1.2"/>
+        <rect x="10.5" y="1" width="5" height="23" rx="1" fill="var(--accent)"/>
+        <circle cx="13" cy="20.5" r="1.6" fill="var(--surface)"/>
+      </svg>
+      <div>
+        <div class="auth-title">WebGeo</div>
+        <div class="auth-sub">Monitoramento de poços</div>
+      </div>
+    </div>
+    <form id="auth-form">
+      <div class="field"><label for="auth-email">E-mail</label><input type="email" id="auth-email" required autocomplete="email"></div>
+      <div class="field"><label for="auth-password">Senha</label><input type="password" id="auth-password" required minlength="6" autocomplete="current-password"></div>
+      <div id="auth-error" class="auth-error" hidden></div>
+      <button type="submit" class="btn btn-primary" id="auth-submit" style="width:100%;justify-content:center">Entrar</button>
+    </form>
+    <p class="auth-nota">Use a mesma conta do Perfil de Sondagem. Contas novas são criadas por lá.</p>
+  </div>
+</div>
+
+<!-- Conta sem empresa vinculada (mesma regra do Perfil) -->
+<div id="pending-org-screen" hidden>
+  <div class="auth-card">
+    <div class="auth-title">Conta sem empresa</div>
+    <p>Sua conta ainda não está vinculada a nenhuma empresa. Avise quem te convidou para liberar o acesso. Assim que estiver pronto, clique em "Verificar novamente".</p>
+    <button type="button" class="btn btn-primary" id="pending-refresh-btn" style="width:100%;margin-bottom:8px;justify-content:center">Verificar novamente</button>
+    <button type="button" class="btn btn-ghost" id="pending-logout-btn" style="width:100%;justify-content:center">Sair</button>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <aside class="rail">
+    <div class="rail-brand">
+      <svg class="rail-mark" width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect x="1" y="17" width="24" height="7" rx="1" fill="var(--accent-tint)" stroke="var(--accent)" stroke-width="1.2"/>
+        <rect x="1" y="10" width="24" height="7" rx="1" fill="var(--surface)" stroke="var(--line-strong)" stroke-width="1.2"/>
+        <rect x="10.5" y="1" width="5" height="23" rx="1" fill="var(--accent)"/>
+        <circle cx="13" cy="20.5" r="1.6" fill="var(--surface)"/>
+      </svg>
+      <div>
+        <div class="rail-title">WebGeo</div>
+        <div class="rail-sub">Monitoramento de poços</div>
+      </div>
+    </div>
+
+    <div class="rail-user">
+      <div class="rail-user-info">
+        <div class="rail-user-org" id="rail-user-org">—</div>
+        <div class="rail-user-email" id="rail-user-email">—</div>
+      </div>
+      <button type="button" class="rail-user-logout" id="btn-logout" title="Sair">Sair</button>
+    </div>
+
+    <div class="rail-stats">
+      <div class="rail-stat"><span class="rail-stat-num" id="stat-projetos">0</span><span class="rail-stat-label">projetos</span></div>
+      <div class="rail-stat"><span class="rail-stat-num" id="stat-pocos">0</span><span class="rail-stat-label">poços</span></div>
+      <div class="rail-stat"><span class="rail-stat-num" id="stat-campanhas">0</span><span class="rail-stat-label">campanhas</span></div>
+    </div>
+
+    <nav class="rail-nav">
+      <button type="button" class="rail-item is-active" data-view="visao"><span class="rail-ico">◉</span>Mapa e resultados</button>
+      <button type="button" class="rail-item" data-view="dados"><span class="rail-ico">☰</span>Tabela de dados</button>
+      <button type="button" class="rail-item" data-view="importar"><span class="rail-ico">⇪</span>Importar planilha</button>
+    </nav>
+
+    <div class="rail-filtros" id="filtros">
+      <div class="rail-projeto">
+        <label class="rail-projeto-label" for="f-projeto">Projeto</label>
+        <select id="f-projeto" class="rail-projeto-select"></select>
+      </div>
+      <div class="rail-projeto">
+        <label class="rail-projeto-label" for="f-parametro">Parâmetro</label>
+        <select id="f-parametro" class="rail-projeto-select"></select>
+      </div>
+      <div class="rail-projeto">
+        <label class="rail-projeto-label" for="f-campanha">Campanha</label>
+        <select id="f-campanha" class="rail-projeto-select"></select>
+      </div>
+      <div class="rail-projeto">
+        <span class="rail-projeto-label">Rede de poços</span>
+        <div id="f-redes" class="group-choices"></div>
+      </div>
+    </div>
+
+    <div class="rail-filtros rail-pluma">
+      <div class="rail-projeto">
+        <label class="chk"><input type="checkbox" id="f-pluma" checked><span class="box"></span><b>Mostrar pluma</b></label>
+      </div>
+      <div class="rail-projeto">
+        <label class="rail-projeto-label" for="f-limiar">Limiar (<span id="f-limiar-un">µg/L</span>)</label>
+        <input type="text" inputmode="decimal" id="f-limiar" class="rail-projeto-select" placeholder="VI">
+      </div>
+      <div class="rail-duplo">
+        <div class="rail-projeto">
+          <label class="rail-projeto-label" for="f-idw">IDW</label>
+          <select id="f-idw" class="rail-projeto-select"><option value="1">p = 1</option><option value="2" selected>p = 2</option><option value="3">p = 3</option></select>
+        </div>
+        <div class="rail-projeto">
+          <label class="rail-projeto-label" for="f-celula">Célula</label>
+          <select id="f-celula" class="rail-projeto-select"><option value="5">5 m</option><option value="10" selected>10 m</option><option value="20">20 m</option></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="rail-foot">Os projetos são os mesmos do Perfil de Sondagem. As fichas com coordenada aparecem no mapa sozinhas; os resultados de laboratório entram pela planilha modelo (uma por campanha). Valores orientadores: CETESB DD 125/2021/E.</div>
+  </aside>
+
+  <main class="sheet">
+    <div class="topbar">
+      <div class="topbar-id">
+        <span class="tag" id="tb-campanha">—</span>
+        <span class="obra" id="tb-sitio">Carregando...</span>
+        <span class="tag tag-param" id="tb-parametro" hidden></span>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost" id="btn-csv" type="button">Exportar CSV</button>
+        <button class="btn btn-primary" type="button" data-view="importar">Importar planilha</button>
+      </div>
+    </div>
+
+    <div class="aviso-geral" id="aviso-geral" hidden></div>
+
+    <!-- ============ MAPA E RESULTADOS ============ -->
+    <div id="view-visao" class="view">
+      <div class="kpis">
+        <div class="kpi"><span class="kpi-label">Poços analisados</span><span class="kpi-num" id="kpi-analisados">—</span><span class="kpi-sub" id="kpi-analisados-sub"></span></div>
+        <div class="kpi kpi-danger"><span class="kpi-label">Acima do VI</span><span class="kpi-num" id="kpi-acima">—</span><span class="kpi-sub" id="kpi-acima-sub"></span></div>
+        <div class="kpi"><span class="kpi-label">Maior concentração</span><span class="kpi-num"><span id="kpi-max">—</span> <small id="kpi-max-un"></small></span><span class="kpi-sub" id="kpi-max-sub"></span></div>
+        <div class="kpi"><span class="kpi-label">Abaixo do LQ</span><span class="kpi-num" id="kpi-lq">—</span><span class="kpi-sub" id="kpi-lq-sub"></span></div>
+      </div>
+
+      <section class="section">
+        <div class="section-head"><span class="section-num">1</span><h2>Mapa dos poços e pluma</h2><span class="hint">clique num poço para ver o resultado, o histórico e o perfil</span></div>
+        <div class="section-body section-mapa">
+          <div id="mapa"></div>
+          <div class="legenda">
+            <span><i class="bola st-acima"></i>Acima do VI</span>
+            <span><i class="bola st-abaixo"></i>Quantificado abaixo do VI</span>
+            <span><i class="bola st-lq"></i>Abaixo do LQ</span>
+            <span><i class="bola st-sem"></i>Sem resultado</span>
+            <span><i class="bola st-sondagem"></i>Tem ficha no Perfil</span>
+            <span><i class="ponto-sondagem"></i>Sondagem do Perfil (sem poço)</span>
+          </div>
+          <div class="legenda legenda-pluma" id="legenda-pluma">
+            <span class="leg-tit" id="leg-tit">Pluma (µg/L)</span>
+            <span class="leg-rampa"><i id="leg-gradiente"></i><span id="leg-ticks" class="leg-ticks"></span></span>
+            <span><i class="leg-limiar"></i><span id="leg-limiar">Limiar</span></span>
+            <span><i class="leg-centro"></i>Centróide</span>
+            <span><i class="leg-centro leg-centro-ini"></i>Centróide na 1ª campanha</span>
+          </div>
+          <div class="legenda-nota"><span>Aproxime o mapa para ver o nome de todos os poços.</span> <span id="mapa-nota"></span></div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head"><span class="section-num">2</span><h2>Pluma e evolução</h2><span class="hint" id="pluma-hint">interpolação IDW dentro da rede de poços</span></div>
+        <div class="section-body">
+          <div class="kpis kpis-pluma">
+            <div class="kpi"><span class="kpi-label" id="kpi-a1-lab">Área na 1ª campanha</span><span class="kpi-num"><span id="kpi-a1">—</span> <small>m²</small></span><span class="kpi-sub" id="kpi-a1-sub"></span></div>
+            <div class="kpi"><span class="kpi-label" id="kpi-a2-lab">Área na campanha</span><span class="kpi-num"><span id="kpi-a2">—</span> <small>m²</small></span><span class="kpi-sub" id="kpi-a2-sub"></span></div>
+            <div class="kpi"><span class="kpi-label">Redução da área</span><span class="kpi-num" id="kpi-red">—</span><span class="kpi-sub" id="kpi-red-sub"></span></div>
+            <div class="kpi"><span class="kpi-label">Deslocamento do centróide</span><span class="kpi-num"><span id="kpi-desl">—</span> <small id="kpi-desl-un"></small></span><span class="kpi-sub" id="kpi-desl-sub"></span></div>
+          </div>
+          <div class="graficos">
+            <figure class="grafico">
+              <figcaption><b>Área acima do limiar</b><span id="g1-sub">m² por campanha</span></figcaption>
+              <div class="grafico-area"><canvas id="g-area" aria-label="Área acima do limiar por campanha"></canvas></div>
+            </figure>
+            <figure class="grafico">
+              <figcaption><b>Concentração máxima</b><span id="g2-sub">por campanha · escala log</span></figcaption>
+              <div class="grafico-area"><canvas id="g-conc" aria-label="Concentração máxima por campanha"></canvas></div>
+            </figure>
+          </div>
+          <div class="tbl-wrap tbl-evolucao">
+            <table class="dtbl" id="tabela-evolucao">
+              <thead><tr><th>Campanha</th><th>Data</th><th class="num">Poços analisados</th><th class="num">Acima do VI</th><th class="num">Conc. máxima</th><th class="num">Área ≥ limiar (m²)</th><th class="num">Centróide (desloc. desde a 1ª)</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ============ TABELA ============ -->
+    <div id="view-dados" class="view" hidden>
+      <section class="section">
+        <div class="section-head"><span class="section-num">3</span><h2>Resultados da campanha</h2><span class="hint">mesmo filtro do mapa</span></div>
+        <div class="section-body">
+          <div class="tbl-wrap">
+            <table class="dtbl" id="tabela-dados">
+              <thead><tr><th>Poço</th><th>Rede</th><th class="num">Latitude</th><th class="num">Longitude</th>
+                <th class="num" id="tab-param">Resultado</th><th class="num">VI</th><th>Situação</th><th>Laudo</th><th>Ficha no Perfil</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ============ IMPORTAR ============ -->
+    <div id="view-importar" class="view" hidden>
+      <section class="section">
+        <div class="section-head"><span class="section-num">4</span><h2>Importar planilha</h2><span class="hint">nada é gravado antes da sua confirmação</span></div>
+        <div class="section-body">
+          <div class="imp-topo">
+            <p class="imp-texto">Uma planilha por campanha, no formato da planilha modelo: poços, resultados do laboratório, nível d'água e litologia. Os dados vão para o <b>projeto</b> escrito na aba Projeto da planilha (se ficar em branco, para o projeto escolhido no menu), sempre dentro da sua empresa (<b id="imp-empresa">—</b>).</p>
+            <a class="btn btn-ghost" href="modelo/WebGeo_Modelo_Importacao.xlsx" download>Baixar planilha modelo</a>
+          </div>
+          <label id="drop" class="drop">
+            <input id="arquivo" type="file" accept=".xlsx,.xls">
+            <span class="drop-ico">⇪</span>
+            <b>Arraste a planilha aqui</b><span>ou clique para escolher (.xlsx)</span>
+          </label>
+          <p id="imp-status" class="imp-status"></p>
+
+          <div id="imp-relatorio" hidden>
+            <div id="imp-resumo"></div>
+            <div id="imp-erros" class="imp-lista imp-erros"></div>
+            <div id="imp-avisos" class="imp-lista imp-avisos"></div>
+            <div id="imp-acoes" class="imp-acoes">
+              <button id="btn-gravar" class="btn btn-primary" type="button">Gravar no banco</button>
+              <button id="btn-cancelar" class="btn btn-ghost" type="button">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <p class="note">Portal de monitoramento ambiental ligado ao Perfil de Sondagem: mesma conta, mesma empresa e os mesmos projetos. Toda ficha do Perfil com coordenada aparece no mapa do projeto; se ela tem "Poço de monitoramento nº", os resultados de laboratório desse poço se ligam a ela.</p>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<!-- Supabase: mesmo arquivo supabase.min.js do Perfil (copie para esta pasta);
+     se ele não estiver aqui, carrega da internet. -->
+<script src="supabase.min.js"></script>
+<script>window.supabase || document.write('<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"><\/script>')</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="script.js"></script>
+</html>
