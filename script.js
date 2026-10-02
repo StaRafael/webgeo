@@ -751,6 +751,18 @@ const WebGeo = (() => {
     $('#f-parametro').addEventListener('change', e => { st.parametroId = +e.target.value; st.pluma.limiar = null; render(); });
     $('#f-campanha').addEventListener('change', e => { st.campanhaId = +e.target.value; render(); });
     $('#btn-csv').addEventListener('click', exportarCSV);
+
+    // Excluir projeto: só libera o botão quando o nome digitado é igual ao do projeto
+    $('#btn-excluir-projeto').addEventListener('click', abrirExcluirProjeto);
+    $('#excluir-cancelar').addEventListener('click', fecharExcluirProjeto);
+    $('#excluir-fechar').addEventListener('click', fecharExcluirProjeto);
+    $('#modal-excluir').addEventListener('click', e => { if (e.target.id === 'modal-excluir') fecharExcluirProjeto(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal-excluir').hidden) fecharExcluirProjeto(); });
+    $('#excluir-confirma').addEventListener('input', e => {
+      const proj = st.projetos.find(p => p.id === st.projetoId);
+      $('#excluir-confirmar').disabled = !proj || e.target.value.trim() !== proj.nome.trim();
+    });
+    $('#excluir-confirmar').addEventListener('click', excluirProjeto);
     $('#f-pluma').addEventListener('change', e => { st.pluma.ativa = e.target.checked; render(); });
     $('#f-idw').addEventListener('change', e => { st.pluma.p = +e.target.value; render(); });
     $('#f-celula').addEventListener('change', e => { st.pluma.cel = +e.target.value; render(); });
@@ -827,6 +839,7 @@ const WebGeo = (() => {
       ? st.projetos.map(p => `<option value="${esc(p.id)}">${esc(p.nome)}</option>`).join('')
       : '<option value="">(nenhum projeto)</option>') + '<option value="__novo__">+ Novo projeto…</option>';
     $('#f-projeto').value = st.projetoId || '';
+    $('#btn-excluir-projeto').hidden = !st.projetoId;
   }
 
   /** Cria um projeto (na mesma tabela do Perfil — ele aparece lá também). */
@@ -838,6 +851,48 @@ const WebGeo = (() => {
     if (error || !data) { console.error(error); toast('Não foi possível criar o projeto agora.'); montarSeletorProjeto(); return; }
     toast('Projeto criado. Ele também aparece no Perfil de Sondagem.');
     st.projetoId = data.id; lembrarProjeto(data.id);
+    await carregarProjetos();
+  }
+
+  // ------------------------------------------------------------- excluir projeto
+  /** Abre a confirmação: mostra o que será apagado e exige digitar o nome do projeto. */
+  function abrirExcluirProjeto() {
+    const proj = st.projetos.find(p => p.id === st.projetoId);
+    if (!proj) return;
+    const pocos = st.pocos.filter(p => !p.virtual).length, n = (x, um, varios) => `${x} ${x === 1 ? um : varios}`;
+    const itens = [];
+    if (pocos) itens.push(`${n(pocos, 'poço', 'poços')} cadastrados no WebGeo`);
+    if (st.campanhas.length) itens.push(`${n(st.campanhas.length, 'campanha', 'campanhas')} e ${n(st.resultados.length, 'resultado', 'resultados')} de laboratório`);
+    if (st.medicoes.length) itens.push(`${n(st.medicoes.length, 'medição', 'medições')} de nível d'água`);
+    if (!itens.length) itens.push('Este projeto não tem dados no WebGeo.');
+    if (st.totalFichas) itens.push(`${n(st.totalFichas, 'ficha do Perfil fica', 'fichas do Perfil ficam')} sem projeto (não ${st.totalFichas === 1 ? 'é apagada' : 'são apagadas'})`);
+    $('#excluir-nome').textContent = proj.nome;
+    $('#excluir-lista').innerHTML = itens.map(i => `<li>${esc(i)}</li>`).join('');
+    $('#excluir-confirma').value = '';
+    $('#excluir-confirmar').disabled = true;
+    $('#excluir-erro').hidden = true;
+    $('#modal-excluir').hidden = false;
+    $('#excluir-confirma').focus();
+  }
+  function fecharExcluirProjeto() { $('#modal-excluir').hidden = true; }
+
+  async function excluirProjeto() {
+    const proj = st.projetos.find(p => p.id === st.projetoId);
+    if (!proj || $('#excluir-confirma').value.trim() !== proj.nome.trim()) return;
+    const btn = $('#excluir-confirmar'); btn.disabled = true; btn.textContent = 'Excluindo...';
+    // Apagar o projeto apaga junto (no banco) os poços, campanhas e resultados dele.
+    // .select() devolve a linha apagada: se voltar vazio, o banco não deixou apagar.
+    const { data, error } = await sb.from('projetos').delete().eq('id', proj.id).select();
+    btn.textContent = 'Excluir projeto';
+    if (error || !data || !data.length) {
+      console.error(error);
+      $('#excluir-erro').textContent = 'Não foi possível excluir: ' + (error?.message || 'o banco não permitiu (projeto de outra empresa ou já excluído).');
+      $('#excluir-erro').hidden = false; btn.disabled = false;
+      return;
+    }
+    fecharExcluirProjeto();
+    toast(`Projeto "${proj.nome}" excluído.`);
+    st.projetoId = null; st.campanhaId = null; st.parametroId = null; st.popupAberto = null; lembrarProjeto('');
     await carregarProjetos();
   }
 
@@ -907,6 +962,7 @@ const WebGeo = (() => {
   function juntarFichas(pocos, fichas) {
     st.sondagens = new Map(); // código do poço -> fichas
     st.soltas = [];           // sondagens sem poço, com coordenada
+    st.totalFichas = fichas.length;
     const porCodigo = new Map(pocos.map(p => [codigo(p.codigo), p]));
     fichas.forEach(f => {
       const k = codigo(f.poco_no || f.data?.meta?.pocoNo);

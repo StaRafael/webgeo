@@ -81,7 +81,10 @@
 
     <div class="rail-filtros" id="filtros">
       <div class="rail-projeto">
-        <label class="rail-projeto-label" for="f-projeto">Projeto</label>
+        <div class="rail-projeto-cab">
+          <label class="rail-projeto-label" for="f-projeto">Projeto</label>
+          <button type="button" class="btn-excluir-projeto" id="btn-excluir-projeto" title="Excluir o projeto selecionado" hidden>Excluir projeto</button>
+        </div>
         <select id="f-projeto" class="rail-projeto-select"></select>
       </div>
       <div class="rail-projeto">
@@ -244,6 +247,28 @@
 
     <p class="note">Portal de monitoramento ambiental ligado ao Perfil de Sondagem: mesma conta, mesma empresa e os mesmos projetos. Toda ficha do Perfil com coordenada aparece no mapa do projeto; se ela tem "Poço de monitoramento nº", os resultados de laboratório desse poço se ligam a ela.</p>
   </main>
+</div>
+
+<!-- Confirmação de exclusão de projeto -->
+<div class="modal-fundo" id="modal-excluir" hidden>
+  <div class="modal-caixa" role="dialog" aria-modal="true" aria-labelledby="modal-excluir-tit">
+    <div class="modal-cab"><span id="modal-excluir-tit">Excluir projeto</span>
+      <button type="button" class="modal-fechar" id="excluir-fechar" aria-label="Fechar">✕</button></div>
+    <div class="modal-corpo">
+      <p>Você vai excluir o projeto <b id="excluir-nome"></b>. <b>Isso não pode ser desfeito.</b></p>
+      <ul id="excluir-lista" class="excluir-lista"></ul>
+      <p class="excluir-nota">O projeto é o mesmo do Perfil de Sondagem: ele some de lá também. As fichas de sondagem <b>não são apagadas</b>, ficam "Sem projeto" no Perfil.</p>
+      <div class="field">
+        <label for="excluir-confirma">Para confirmar, digite o nome do projeto</label>
+        <input type="text" id="excluir-confirma" autocomplete="off">
+      </div>
+      <div class="auth-error" id="excluir-erro" hidden></div>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-ghost" id="excluir-cancelar">Cancelar</button>
+        <button type="button" class="btn btn-perigo" id="excluir-confirmar" disabled>Excluir projeto</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="toast"></div>
