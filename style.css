@@ -362,13 +362,53 @@
   .imp-avisos h4{color:var(--warn);} .imp-avisos ul{background:var(--warn-tint);}
   .imp-acoes{display:flex;gap:8px;margin-top:16px;}
 
-  /* ============ EXCLUIR PROJETO ============ */
-  .rail-projeto-cab{display:flex;align-items:baseline;justify-content:space-between;gap:8px;}
-  .btn-excluir-projeto{
-    border:none;background:transparent;color:var(--ink-faint);font-size:11px;font-weight:600;
-    padding:2px 6px;border-radius:4px;margin-bottom:3px;
+  /* ============ PLANTA (DXF) ============ */
+  .rail-planta{margin-top:14px;}
+  .planta-painel{display:flex;flex-direction:column;gap:10px;}
+  .planta-painel .chk b{font-size:12.5px;word-break:break-all;}
+  .btn-sm{padding:7px 10px;font-size:12px;width:100%;justify-content:center;}
+  .btn-sm2{padding:6px 10px;font-size:12px;}
+  .btn-mini{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-soft);font-size:11px;font-weight:600;padding:3px 8px;border-radius:4px;}
+  .btn-mini:hover{border-color:var(--accent);color:var(--accent-ink);}
+  .btn-mini-perigo:hover{background:var(--danger-tint);border-color:var(--danger);color:var(--danger);}
+  .planta-acoes{display:flex;flex-wrap:wrap;gap:6px;}
+  .planta-acoes .btn-sm{margin-bottom:2px;}
+  .planta-camadas{font-size:12.5px;border:1px solid var(--line);border-radius:var(--radius-s);background:var(--surface);}
+  .planta-camadas summary{cursor:pointer;padding:6px 8px;font-weight:600;color:var(--ink-soft);}
+  .planta-camadas-acoes{display:flex;gap:6px;padding:0 8px 6px;}
+  #planta-camadas{max-height:190px;overflow-y:auto;padding:0 8px 8px;display:flex;flex-direction:column;gap:5px;}
+  #planta-camadas .chk{font-size:12.5px;}
+  #planta-camadas .amostra{flex:none;width:14px;height:3px;border-radius:2px;border:1px solid var(--line-strong);}
+  #planta-camadas small{color:var(--ink-faint);margin-left:auto;font-family:var(--font-mono);}
+  .leg-planta{display:inline-block;width:22px;height:0;border-top:2px solid var(--ink-soft);}
+  .planta-info td:first-child{color:var(--ink-soft);}
+  .planta-aviso{color:var(--warn);background:var(--warn-tint);margin:10px 0 0;}
+  .planta-zona{display:flex;align-items:flex-end;gap:16px;margin:12px 0;}
+  .planta-zona .field{margin:0;width:110px;}
+
+  .section-mapa{position:relative;}
+  .ajuste-barra{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    padding:10px 14px;background:var(--accent-tint);border-bottom:1px solid var(--accent);font-size:13px;
   }
-  .btn-excluir-projeto:hover{background:var(--danger-tint);color:var(--danger);}
+  .ajuste-texto{display:flex;flex-direction:column;gap:1px;min-width:0;}
+  .ajuste-texto span{color:var(--ink-soft);font-size:12.5px;}
+  .ajuste-botoes{display:flex;gap:6px;flex:none;}
+  .mapa-ajustando{cursor:crosshair !important;}
+  .mapa-ajustando .leaflet-interactive{cursor:crosshair !important;}
+  .pino-ajuste{
+    width:20px;height:20px;border-radius:50%;background:#fff;border:2px solid #172621;color:#172621;
+    font:700 11px/16px var(--font-mono);text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.5);
+  }
+  .pino-ajuste.de{background:#ffd60a;}
+
+  /* ============ EXCLUIR PROJETO ============ */
+  .rail-projeto-cab{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .btn-excluir-projeto{
+    border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-soft);font-size:11px;font-weight:600;
+    padding:3px 8px;border-radius:4px;margin-bottom:5px;
+  }
+  .btn-excluir-projeto:hover{background:var(--danger-tint);border-color:var(--danger);color:var(--danger);}
   .btn-perigo{background:var(--danger);border-color:var(--danger);color:#fff;}
   .btn-perigo:hover:not(:disabled){filter:brightness(.92);}
   .modal-fundo{

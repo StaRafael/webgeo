@@ -626,12 +626,326 @@ const WGPluma = (() => {
   return { grade, idw, agrupar, areaECentroide, distancia, isolinha, cor, RAMPA, projecao };
 })();
 
-if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma };
+/* =====================================================================
+   3. PLANTA EM DXF (funções puras, sem tela)
+   Lê um arquivo DXF (texto) e devolve as linhas do desenho por camada,
+   já com os blocos "explodidos". Também converte UTM <-> latitude/longitude.
+   ===================================================================== */
+const WGDxf = (() => {
+
+  // ------------------------------------------------------------ UTM (SIRGAS 2000 / WGS84), série de Krüger
+  const A_ELIP = 6378137, F_ELIP = 1 / 298.257222101, K0 = 0.9996;
+  const N3 = F_ELIP / (2 - F_ELIP), N3_2 = N3 * N3, N3_3 = N3_2 * N3;
+  const A_RET = A_ELIP / (1 + N3) * (1 + N3_2 / 4 + N3_2 * N3_2 / 64);
+  const ALFA = [N3 / 2 - 2 * N3_2 / 3 + 5 * N3_3 / 16, 13 * N3_2 / 48 - 3 * N3_3 / 5, 61 * N3_3 / 240];
+  const BETA = [N3 / 2 - 2 * N3_2 / 3 + 37 * N3_3 / 96, N3_2 / 48 + N3_3 / 15, 17 * N3_3 / 480];
+  const DELTA = [2 * N3 - 2 * N3_2 / 3 - 2 * N3_3, 7 * N3_2 / 3 - 8 * N3_3 / 5, 56 * N3_3 / 15];
+  const meridiano = zona => (zona * 6 - 183) * Math.PI / 180;
+
+  /** UTM -> {lat, lon} em graus. sul = hemisfério sul (padrão no Brasil). */
+  function utmParaLatLon(E, N, zona, sul = true) {
+    const xi = (N - (sul ? 1e7 : 0)) / (K0 * A_RET), eta = (E - 5e5) / (K0 * A_RET);
+    let xi1 = xi, eta1 = eta;
+    for (let j = 1; j <= 3; j++) {
+      xi1 -= BETA[j - 1] * Math.sin(2 * j * xi) * Math.cosh(2 * j * eta);
+      eta1 -= BETA[j - 1] * Math.cos(2 * j * xi) * Math.sinh(2 * j * eta);
+    }
+    const chi = Math.asin(Math.sin(xi1) / Math.cosh(eta1));
+    let phi = chi;
+    for (let j = 1; j <= 3; j++) phi += DELTA[j - 1] * Math.sin(2 * j * chi);
+    const lam = meridiano(zona) + Math.atan2(Math.sinh(eta1), Math.cos(xi1));
+    return { lat: phi * 180 / Math.PI, lon: lam * 180 / Math.PI };
+  }
+
+  /** {lat, lon} em graus -> UTM {E, N} na zona dada. */
+  function latLonParaUtm(lat, lon, zona, sul = true) {
+    const phi = lat * Math.PI / 180, dl = lon * Math.PI / 180 - meridiano(zona);
+    const c = 2 * Math.sqrt(N3) / (1 + N3);
+    const t = Math.sinh(Math.atanh(Math.sin(phi)) - c * Math.atanh(c * Math.sin(phi)));
+    const xi1 = Math.atan2(t, Math.cos(dl)), eta1 = Math.atanh(Math.sin(dl) / Math.sqrt(1 + t * t));
+    let xi = xi1, eta = eta1;
+    for (let j = 1; j <= 3; j++) {
+      xi += ALFA[j - 1] * Math.sin(2 * j * xi1) * Math.cosh(2 * j * eta1);
+      eta += ALFA[j - 1] * Math.cos(2 * j * xi1) * Math.sinh(2 * j * eta1);
+    }
+    return { E: 5e5 + K0 * A_RET * eta, N: (sul ? 1e7 : 0) + K0 * A_RET * xi };
+  }
+  const zonaDaLongitude = lon => Math.floor((lon + 180) / 6) + 1;
+
+  // ------------------------------------------------------------ leitura do DXF
+  /** Cores básicas do AutoCAD (índice ACI) para as camadas. */
+  const ACI = { 1: '#ff3b30', 2: '#ffd60a', 3: '#34c759', 4: '#32d7e6', 5: '#3a82f7', 6: '#d85bd8', 7: '#ffffff', 8: '#9a9a9a', 9: '#c8c8c8',
+    30: '#ff9f0a', 40: '#ffb340', 50: '#e6d200', 140: '#3aa0ff', 250: '#555555', 251: '#6b6b6b', 252: '#858585', 253: '#a0a0a0', 254: '#c0c0c0' };
+  const corAci = n => ACI[Math.abs(n)] || '#ffffff';
+
+  const mult = (m, n) => [ // compõe duas transformações afins [a,b,c,d,e,f]: x' = a x + b y + e ; y' = c x + d y + f
+    m[0] * n[0] + m[1] * n[2], m[0] * n[1] + m[1] * n[3], m[2] * n[0] + m[3] * n[2], m[2] * n[1] + m[3] * n[3],
+    m[0] * n[4] + m[1] * n[5] + m[4], m[2] * n[4] + m[3] * n[5] + m[5]];
+  const aplicar = (m, x, y) => [m[0] * x + m[1] * y + m[4], m[2] * x + m[3] * y + m[5]];
+  const IDENT = [1, 0, 0, 1, 0, 0];
+
+  /**
+   * Lê o texto de um DXF. Devolve:
+   *   camadas: [{nome, cor, linhas: [[x,y,x,y,...], ...]}]  (coordenadas do desenho)
+   *   bbox: {xmin, ymin, xmax, ymax}, entidades: {TIPO: n}, ignoradas: {TIPO: n}
+   * Entidades lidas: LINE, LWPOLYLINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE e INSERT (blocos, inclusive aninhados).
+   * Textos, hachuras e cotas são ignorados.
+   */
+  function ler(texto) {
+    const linhas = texto.split(/\r\n|\r|\n/);
+    const pares = [];
+    for (let i = 0; i + 1 < linhas.length; i += 2) pares.push([parseInt(linhas[i], 10), linhas[i + 1]]);
+    if (!pares.length || pares.every(p => Number.isNaN(p[0]))) throw new Error('Este arquivo não parece ser um DXF de texto (se for DXF binário ou DWG, salve como "DXF ASCII" no CAD).');
+
+    // separa em seções
+    const secoes = {};
+    for (let i = 0; i < pares.length; i++) {
+      if (pares[i][0] === 0 && pares[i][1].trim() === 'SECTION' && pares[i + 1] && pares[i + 1][0] === 2) {
+        const nome = pares[i + 1][1].trim(); let j = i + 2;
+        while (j < pares.length && !(pares[j][0] === 0 && pares[j][1].trim() === 'ENDSEC')) j++;
+        secoes[nome] = pares.slice(i + 2, j); i = j;
+      }
+    }
+    if (!secoes.ENTITIES) throw new Error('DXF sem a seção ENTITIES (arquivo vazio ou incompleto).');
+
+    // camadas e suas cores
+    const corCamada = new Map();
+    (function () {
+      const t = secoes.TABLES || []; let nome = null, emLayer = false;
+      for (const [c, v] of t) {
+        if (c === 0) { emLayer = v.trim() === 'LAYER'; nome = null; }
+        else if (emLayer && c === 2) nome = v.trim();
+        else if (emLayer && c === 62 && nome !== null) corCamada.set(nome, parseInt(v, 10));
+      }
+    })();
+
+    // quebra uma seção em entidades cruas: {tipo, g: [[codigo, valor], ...]}
+    const entidades = lista => {
+      const out = []; let atual = null;
+      for (const [c, v] of lista) {
+        if (c === 0) { atual = { tipo: v.trim(), g: [] }; out.push(atual); }
+        else if (atual) atual.g.push([c, v]);
+      }
+      return out;
+    };
+    const num = (e, cod, pad = 0) => { const p = e.g.find(x => x[0] === cod); return p ? parseFloat(p[1]) : pad; };
+    const str = (e, cod, pad = '') => { const p = e.g.find(x => x[0] === cod); return p ? p[1].trim() : pad; };
+
+    // blocos
+    const blocos = new Map();
+    (function () {
+      let atual = null;
+      for (const e of entidades(secoes.BLOCKS || [])) {
+        if (e.tipo === 'BLOCK') { atual = { nome: str(e, 2), bx: num(e, 10), by: num(e, 20), ents: [] }; }
+        else if (e.tipo === 'ENDBLK') { if (atual) blocos.set(atual.nome, atual); atual = null; }
+        else if (atual) atual.ents.push(e);
+      }
+    })();
+
+    const porCamada = new Map(), contagem = {}, ignoradas = {};
+    const bbox = { xmin: Infinity, ymin: Infinity, xmax: -Infinity, ymax: -Infinity };
+    let totalPontos = 0;
+    const emitir = (camada, pts, m) => {
+      if (pts.length < 2) return;
+      const l = new Array(pts.length * 2);
+      for (let i = 0; i < pts.length; i++) {
+        const [x, y] = aplicar(m, pts[i][0], pts[i][1]);
+        l[2 * i] = x; l[2 * i + 1] = y;
+        if (x < bbox.xmin) bbox.xmin = x; if (x > bbox.xmax) bbox.xmax = x;
+        if (y < bbox.ymin) bbox.ymin = y; if (y > bbox.ymax) bbox.ymax = y;
+      }
+      totalPontos += pts.length;
+      if (totalPontos > 600000) throw new Error('Desenho grande demais (mais de 600 mil pontos). No CAD, limpe o que não precisa (PURGE) ou exporte só as camadas principais.');
+      if (!porCamada.has(camada)) porCamada.set(camada, []);
+      porCamada.get(camada).push(l);
+    };
+    const arco = (cx, cy, r, a0, a1) => { // ângulos em radianos, sentido anti-horário de a0 a a1
+      while (a1 <= a0) a1 += 2 * Math.PI;
+      const n = Math.max(2, Math.ceil((a1 - a0) / (Math.PI / 18)));
+      const pts = [];
+      for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); }
+      return pts;
+    };
+    const comBulge = (v, fechada) => { // v: [{x,y,b}], b = "bulge" (arco entre este vértice e o próximo)
+      const pts = [], n = v.length, fim = fechada ? n : n - 1;
+      for (let i = 0; i < fim; i++) {
+        const p = v[i], q = v[(i + 1) % n];
+        pts.push([p.x, p.y]);
+        if (p.b && Math.abs(p.b) > 1e-9) {
+          const dx = q.x - p.x, dy = q.y - p.y, corda = Math.hypot(dx, dy);
+          if (corda > 1e-9) {
+            const ang = 4 * Math.atan(p.b), r = corda / (2 * Math.sin(ang / 2));
+            const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2, h = r * Math.cos(ang / 2);
+            const cx = mx - h * dy / corda, cy = my + h * dx / corda;
+            const a0 = Math.atan2(p.y - cy, p.x - cx), passos = Math.max(2, Math.ceil(Math.abs(ang) / (Math.PI / 18)));
+            for (let k = 1; k < passos; k++) { const a = a0 + ang * k / passos; pts.push([cx + Math.abs(r) * Math.cos(a), cy + Math.abs(r) * Math.sin(a)]); }
+          }
+        }
+      }
+      pts.push(fechada ? [v[0].x, v[0].y] : [v[n - 1].x, v[n - 1].y]);
+      return pts;
+    };
+    const spline = e => { // B-spline por de Boor; sem nós válidos, usa os pontos de ajuste ou de controle
+      const xs = e.g.filter(x => x[0] === 10).map(x => parseFloat(x[1])), ys = e.g.filter(x => x[0] === 20).map(x => parseFloat(x[1]));
+      const ctrl = xs.map((x, i) => [x, ys[i]]);
+      const fx = e.g.filter(x => x[0] === 11).map(x => parseFloat(x[1])), fy = e.g.filter(x => x[0] === 21).map(x => parseFloat(x[1]));
+      const nos = e.g.filter(x => x[0] === 40).map(x => parseFloat(x[1])), grau = num(e, 71, 3);
+      if (ctrl.length < 2) return fx.map((x, i) => [x, fy[i]]);
+      if (nos.length !== ctrl.length + grau + 1) return fx.length > 1 ? fx.map((x, i) => [x, fy[i]]) : ctrl;
+      const t0 = nos[grau], t1 = nos[ctrl.length], passos = Math.min(400, ctrl.length * 8), pts = [];
+      for (let s = 0; s <= passos; s++) {
+        const t = Math.min(t1 - 1e-9, t0 + (t1 - t0) * s / passos);
+        let k = grau; while (k < ctrl.length - 1 && nos[k + 1] <= t) k++;
+        const d = []; for (let j = 0; j <= grau; j++) d.push(ctrl[j + k - grau].slice());
+        for (let r = 1; r <= grau; r++) for (let j = grau; j >= r; j--) {
+          const den = nos[j + 1 + k - r] - nos[j + k - grau], a = den ? (t - nos[j + k - grau]) / den : 0;
+          d[j] = [(1 - a) * d[j - 1][0] + a * d[j][0], (1 - a) * d[j - 1][1] + a * d[j][1]];
+        }
+        pts.push(d[grau]);
+      }
+      return pts;
+    };
+
+    function desenhar(lista, m, camadaPai, nivel) {
+      for (let i = 0; i < lista.length; i++) {
+        const e = lista[i];
+        if (num(e, 67, 0) === 1) continue; // espaço de papel (layout de impressão)
+        let camada = str(e, 8, '0'); if (camada === '0' && camadaPai) camada = camadaPai;
+        const esp = num(e, 230, 1) < 0; // entidade espelhada (extrusão negativa)
+        const mm = esp ? mult(m, [-1, 0, 0, 1, 0, 0]) : m;
+        let ok = true;
+        switch (e.tipo) {
+          case 'LINE': emitir(camada, [[num(e, 10), num(e, 20)], [num(e, 11), num(e, 21)]], m); break;
+          case 'LWPOLYLINE': {
+            const v = []; let at = null;
+            for (const [c, val] of e.g) {
+              if (c === 10) { at = { x: parseFloat(val), y: 0, b: 0 }; v.push(at); }
+              else if (c === 20 && at) at.y = parseFloat(val);
+              else if (c === 42 && at) at.b = parseFloat(val);
+            }
+            if (v.length > 1) emitir(camada, comBulge(v, (num(e, 70, 0) & 1) === 1), mm);
+            break;
+          }
+          case 'POLYLINE': {
+            const fechada = (num(e, 70, 0) & 1) === 1, v = [];
+            let j = i + 1;
+            for (; j < lista.length && lista[j].tipo === 'VERTEX'; j++) {
+              if (num(lista[j], 70, 0) & 128 && !(num(lista[j], 70, 0) & 64)) continue; // face de malha
+              v.push({ x: num(lista[j], 10), y: num(lista[j], 20), b: num(lista[j], 42, 0) });
+            }
+            i = j - 1;
+            if (v.length > 1) emitir(camada, comBulge(v, fechada), mm);
+            break;
+          }
+          case 'VERTEX': case 'SEQEND': case 'ATTRIB': continue;
+          case 'CIRCLE': emitir(camada, arco(num(e, 10), num(e, 20), num(e, 40), 0, 2 * Math.PI), mm); break;
+          case 'ARC': emitir(camada, arco(num(e, 10), num(e, 20), num(e, 40), num(e, 50) * Math.PI / 180, num(e, 51) * Math.PI / 180), mm); break;
+          case 'ELLIPSE': {
+            const cx = num(e, 10), cy = num(e, 20), ax = num(e, 11), ay = num(e, 21), razao = num(e, 40, 1);
+            let p0 = num(e, 41, 0), p1 = num(e, 42, 2 * Math.PI); while (p1 <= p0) p1 += 2 * Math.PI;
+            const n = Math.max(8, Math.ceil((p1 - p0) / (Math.PI / 24))), pts = [];
+            for (let k = 0; k <= n; k++) {
+              const t = p0 + (p1 - p0) * k / n, c = Math.cos(t), s = Math.sin(t);
+              pts.push([cx + ax * c - ay * razao * s, cy + ay * c + ax * razao * s]);
+            }
+            emitir(camada, pts, m); break;
+          }
+          case 'SPLINE': { const pts = spline(e); if (pts.length > 1) { if (num(e, 70, 0) & 1) pts.push(pts[0]); emitir(camada, pts, m); } break; }
+          case 'INSERT': {
+            const b = blocos.get(str(e, 2));
+            if (!b || nivel >= 12) { ok = false; break; }
+            const rot = num(e, 50, 0) * Math.PI / 180, sx = num(e, 41, 1), sy = num(e, 42, 1);
+            const cr = Math.cos(rot), sr = Math.sin(rot);
+            // ponto do bloco -> tira a base, escala, gira, leva ao ponto de inserção
+            const t = mult([cr * sx, -sr * sy, sr * sx, cr * sy, num(e, 10), num(e, 20)], [1, 0, 0, 1, -b.bx, -b.by]);
+            desenhar(b.ents, mult(mm, t), camada, nivel + 1);
+            break;
+          }
+          default: ok = false;
+        }
+        const alvo = ok ? contagem : ignoradas;
+        alvo[e.tipo] = (alvo[e.tipo] || 0) + 1;
+      }
+    }
+    desenhar(entidades(secoes.ENTITIES), IDENT, null, 0);
+    if (!porCamada.size) throw new Error('Não encontrei linhas neste DXF (só textos, hachuras ou imagens?).');
+
+    const camadas = [...porCamada.entries()]
+      .map(([nome, ls]) => ({ nome, cor: corAci(corCamada.get(nome) ?? 7), linhas: ls }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    return { camadas, bbox, entidades: contagem, ignoradas, pontos: totalPontos };
+  }
+
+  /**
+   * Descobre como as coordenadas do desenho se relacionam com o UTM.
+   * Devolve { tipo, afim, aviso }: afim = [a,b,c,d,e,f] leva (x,y) do desenho a (E,N).
+   *   'utm'      X = Leste, Y = Norte: usa direto.
+   *   'trocado'  X tem valor de Norte e Y de Leste: mantém a orientação do desenho e leva o
+   *              centro para o ponto que os números indicam (precisa conferir/ajustar).
+   *   'local'    coordenadas sem relação com UTM: centra no ponto dado (precisa ajustar).
+   */
+  function georreferenciar(bbox, centroUtm) {
+    const eLeste = v => v > 1e5 && v < 9.5e5, eNorte = v => v > 1e6 && v < 1.0001e7;
+    const cx = (bbox.xmin + bbox.xmax) / 2, cy = (bbox.ymin + bbox.ymax) / 2;
+    if (eLeste(bbox.xmin) && eLeste(bbox.xmax) && eNorte(bbox.ymin) && eNorte(bbox.ymax))
+      return { tipo: 'utm', afim: [1, 0, 0, 1, 0, 0], aviso: null };
+    if (eNorte(bbox.xmin) && eNorte(bbox.xmax) && eLeste(bbox.ymin) && eLeste(bbox.ymax))
+      return { tipo: 'trocado', afim: [1, 0, 0, 1, cy - cx, cx - cy],
+        aviso: 'As coordenadas do desenho parecem estar com os eixos trocados (X com valor de Norte e Y de Leste). A planta foi colocada perto do lugar, mas confira com o satélite e use "Ajustar posição".' };
+    if (!centroUtm) return { tipo: 'local', afim: [1, 0, 0, 1, 0, 0], aviso: 'O desenho não está em coordenadas UTM e o projeto ainda não tem poços para servir de referência.' };
+    return { tipo: 'local', afim: [1, 0, 0, 1, centroUtm.E - cx, centroUtm.N - cy],
+      aviso: 'O desenho não está em coordenadas UTM. A planta foi colocada no centro dos poços: use "Ajustar posição" para encaixar no satélite.' };
+  }
+
+  /**
+   * Compacta o desenho para gravar no banco: coordenadas relativas à origem, em centímetros.
+   * dados = { v, nome, zona, sul, origem:[x0,y0], afim, tipo, camadas:[{nome, cor, l:[[x,y,...]]}], ocultas:[] }
+   */
+  function empacotar(desenho, geo, nome, zona, sul = true) {
+    const x0 = Math.floor(desenho.bbox.xmin), y0 = Math.floor(desenho.bbox.ymin);
+    return {
+      v: 1, nome, zona, sul, tipo: geo.tipo, origem: [x0, y0], afim: geo.afim, ocultas: [],
+      camadas: desenho.camadas.map(c => ({ nome: c.nome, cor: c.cor,
+        l: c.linhas.map(l => l.map((v, i) => Math.round((v - (i % 2 ? y0 : x0)) * 100) / 100)) }))
+    };
+  }
+
+  /** Ajuste por pontos de controle: pares = [{de:{E,N}, para:{E,N}}] (1 = só desloca; 2 = desloca e gira). */
+  function ajustar(afim, pares, mudarEscala = false) {
+    if (!pares.length) return afim;
+    let k = [1, 0], t; // k = fator complexo (rotação/escala)
+    if (pares.length >= 2) {
+      const p = pares[0], q = pares[1];
+      const dz = [q.de.E - p.de.E, q.de.N - p.de.N], dw = [q.para.E - p.para.E, q.para.N - p.para.N];
+      const d2 = dz[0] * dz[0] + dz[1] * dz[1];
+      if (d2 > 1e-6) {
+        k = [(dw[0] * dz[0] + dw[1] * dz[1]) / d2, (dw[1] * dz[0] - dw[0] * dz[1]) / d2];
+        if (!mudarEscala) { const m = Math.hypot(k[0], k[1]) || 1; k = [k[0] / m, k[1] / m]; }
+      }
+      // translação pelo ponto médio (divide o erro entre os dois pontos)
+      const mz = [(p.de.E + q.de.E) / 2, (p.de.N + q.de.N) / 2], mw = [(p.para.E + q.para.E) / 2, (p.para.N + q.para.N) / 2];
+      t = [mw[0] - (k[0] * mz[0] - k[1] * mz[1]), mw[1] - (k[1] * mz[0] + k[0] * mz[1])];
+    } else {
+      t = [pares[0].para.E - pares[0].de.E, pares[0].para.N - pares[0].de.N];
+    }
+    return mult([k[0], -k[1], k[1], k[0], t[0], t[1]], afim);
+  }
+
+  /** Ponto do desenho (coordenadas gravadas, relativas à origem) -> UTM. */
+  function paraUtm(dados, x, y) {
+    const [E, N] = aplicar(dados.afim, x + dados.origem[0], y + dados.origem[1]);
+    return { E, N };
+  }
+
+  return { ler, georreferenciar, empacotar, ajustar, paraUtm, utmParaLatLon, latLonParaUtm, zonaDaLongitude };
+})();
+
+if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf };
 
 
 
 /* =====================================================================
-   3. APLICAÇÃO (tela)
+   4. APLICAÇÃO (tela)
    Login e empresa seguem exatamente o Perfil de Sondagem:
    auth -> profiles.organization_id -> organizations.
    ===================================================================== */
@@ -641,7 +955,7 @@ if (typeof window !== 'undefined' && window.document) {
 
 const WebGeo = (() => {
   let sb;                       // cliente Supabase
-  let mapa, camadaPocos, camadaPluma;
+  let mapa, camadaPocos, camadaPluma, camadaPlanta, camadaAjuste, rendPlanta;
   let graficos = {};
   let usuarioCarregado = null;  // evita recarregar a tela quando o Supabase só renova o token
   const st = {
@@ -652,7 +966,8 @@ const WebGeo = (() => {
     pontos: [], enquadrarPendente: false,
     perfis: new Map(),            // poco_id -> intervalos da aba Litologia (wg_perfil_poco)
     pluma: { ativa: true, limiar: null, p: 2, cel: 2 }, // limiar null = usa o VI do parâmetro
-    calc: null                    // resultado da última interpolação
+    calc: null,                   // resultado da última interpolação
+    planta: null, plantaLL: null, plantaErro: null, dxfNovo: null, ajuste: null // planta em DXF do projeto
   };
 
   const $ = s => document.querySelector(s);
@@ -752,6 +1067,30 @@ const WebGeo = (() => {
     $('#f-campanha').addEventListener('change', e => { st.campanhaId = +e.target.value; render(); });
     $('#btn-csv').addEventListener('click', exportarCSV);
 
+    // Planta em DXF
+    $('#btn-planta-inserir').addEventListener('click', () => $('#arquivo-dxf').click());
+    $('#btn-planta-trocar').addEventListener('click', () => $('#arquivo-dxf').click());
+    $('#arquivo-dxf').addEventListener('change', e => e.target.files[0] && lerDxf(e.target.files[0]));
+    const fecharPlanta = () => { $('#modal-planta').hidden = true; st.dxfNovo = null; };
+    $('#planta-cancelar').addEventListener('click', fecharPlanta);
+    $('#planta-fechar').addEventListener('click', fecharPlanta);
+    $('#planta-confirmar').addEventListener('click', inserirPlanta);
+    $('#planta-zona').addEventListener('input', () => st.dxfNovo && mostrarResumoDxf());
+    $('#planta-sul').addEventListener('change', () => st.dxfNovo && mostrarResumoDxf());
+    $('#f-planta').addEventListener('change', e => { cfgPlanta.setMostrar(e.target.checked); renderPlanta(); });
+    $('#f-planta-cor').addEventListener('change', e => { cfgPlanta.setCor(e.target.value); renderPlanta(); });
+    const marcarCamadas = todas => {
+      cfgPlanta.setOcultas(st.projetoId, todas ? new Set() : new Set(st.planta.dados.camadas.map(c => c.nome)));
+      montarPainelPlanta(); renderPlanta();
+    };
+    $('#btn-camadas-todas').addEventListener('click', () => marcarCamadas(true));
+    $('#btn-camadas-nenhuma').addEventListener('click', () => marcarCamadas(false));
+    $('#btn-planta-remover').addEventListener('click', removerPlanta);
+    $('#btn-planta-ajustar').addEventListener('click', iniciarAjuste);
+    $('#ajuste-salvar').addEventListener('click', salvarAjuste);
+    $('#ajuste-cancelar').addEventListener('click', () => cancelarAjuste(false));
+    $('#ajuste-recomecar').addEventListener('click', () => { cancelarAjuste(false); iniciarAjuste(); });
+
     // Excluir projeto: só libera o botão quando o nome digitado é igual ao do projeto
     $('#btn-excluir-projeto').addEventListener('click', abrirExcluirProjeto);
     $('#excluir-cancelar').addEventListener('click', fecharExcluirProjeto);
@@ -828,6 +1167,7 @@ const WebGeo = (() => {
       montarSeletorProjeto();
       if (!st.projetoId) {
         st.campanhas = []; st.pocos = []; st.resultados = []; st.medicoes = []; st.soltas = [];
+        await carregarPlanta();
         render(); trocarView('importar'); return;
       }
       await carregarProjeto();
@@ -854,6 +1194,263 @@ const WebGeo = (() => {
     await carregarProjetos();
   }
 
+  // ------------------------------------------------------------- planta em DXF
+  const CORES_PLANTA = { branco: '#ffffff', amarelo: '#ffd60a', preto: '#111111' };
+  const cfgPlanta = (() => { // preferências de exibição, guardadas neste navegador
+    const ler = (k, pad) => { try { const v = localStorage.getItem(k); return v === null ? pad : v; } catch (e) { return pad; } };
+    const gravar = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* sem armazenamento */ } };
+    return {
+      mostrar: () => ler('webgeo.planta.mostrar', '1') === '1', setMostrar: v => gravar('webgeo.planta.mostrar', v ? '1' : '0'),
+      cor: () => ler('webgeo.planta.cor', 'branco'), setCor: v => gravar('webgeo.planta.cor', v),
+      ocultas: proj => { try { return new Set(JSON.parse(ler('webgeo.planta.ocultas.' + proj, '[]'))); } catch (e) { return new Set(); } },
+      setOcultas: (proj, s) => gravar('webgeo.planta.ocultas.' + proj, JSON.stringify([...s]))
+    };
+  })();
+
+  /** Carrega a planta do projeto (se a tabela ainda não existir no banco, só avisa ao tentar inserir). */
+  async function carregarPlanta() {
+    st.planta = null; st.plantaLL = null; st.plantaErro = null;
+    cancelarAjuste(true);
+    if (!st.projetoId) { montarPainelPlanta(); return; }
+    const { data, error } = await sb.from('wg_planta').select('*').eq('projeto_id', st.projetoId);
+    if (error) st.plantaErro = error.message || String(error);
+    else if (data && data.length) st.planta = { nome: data[0].nome, dados: data[0].dados };
+    montarPainelPlanta();
+  }
+
+  function montarPainelPlanta() {
+    const p = st.planta;
+    $('#planta-painel').hidden = !p;
+    $('#btn-planta-inserir').hidden = !!p || !st.projetoId;
+    $('#leg-planta').hidden = !p;
+    if (!p) return;
+    $('#planta-nome').textContent = p.nome;
+    $('#f-planta').checked = cfgPlanta.mostrar();
+    $('#f-planta-cor').value = cfgPlanta.cor();
+    const ocultas = cfgPlanta.ocultas(st.projetoId);
+    $('#planta-camadas-tit').textContent = `Camadas (${p.dados.camadas.length - [...ocultas].filter(n => p.dados.camadas.some(c => c.nome === n)).length} de ${p.dados.camadas.length})`;
+    $('#planta-camadas').innerHTML = p.dados.camadas.map(c => `
+      <label class="chk"><input type="checkbox" value="${esc(c.nome)}" ${ocultas.has(c.nome) ? '' : 'checked'}><span class="box"></span>
+        <i class="amostra" style="background:${esc(c.cor)}"></i>${esc(c.nome)}<small>${c.l.length}</small></label>`).join('');
+    $('#planta-camadas').querySelectorAll('input').forEach(i => i.addEventListener('change', () => {
+      const s = cfgPlanta.ocultas(st.projetoId);
+      i.checked ? s.delete(i.value) : s.add(i.value);
+      cfgPlanta.setOcultas(st.projetoId, s); montarPainelPlanta(); renderPlanta();
+    }));
+  }
+
+  /** Converte as linhas da planta para latitude/longitude (guarda em cache até a posição mudar). */
+  function linhasDaPlanta() {
+    const d = st.planta.dados, chave = d.afim.join(',') + '|' + d.zona + '|' + d.sul;
+    if (st.plantaLL && st.plantaLL.chave === chave) return st.plantaLL;
+    const camadas = d.camadas.map(c => ({
+      nome: c.nome, cor: c.cor,
+      linhas: c.l.map(l => {
+        const out = new Array(l.length / 2);
+        for (let i = 0; i < l.length; i += 2) {
+          const u = WGDxf.paraUtm(d, l[i], l[i + 1]), ll = WGDxf.utmParaLatLon(u.E, u.N, d.zona, d.sul);
+          out[i / 2] = [ll.lat, ll.lon];
+        }
+        return out;
+      })
+    }));
+    st.plantaLL = { chave, camadas };
+    return st.plantaLL;
+  }
+
+  function renderPlanta() {
+    if (!camadaPlanta) return;
+    camadaPlanta.clearLayers();
+    if (!st.planta || !cfgPlanta.mostrar()) return;
+    const ocultas = cfgPlanta.ocultas(st.projetoId), modo = cfgPlanta.cor();
+    linhasDaPlanta().camadas.forEach(c => {
+      if (ocultas.has(c.nome) || !c.linhas.length) return;
+      L.polyline(c.linhas, { renderer: rendPlanta, pane: 'planta', interactive: false, weight: 1.2, opacity: .92,
+        color: modo === 'cad' ? c.cor : CORES_PLANTA[modo] || '#ffffff' }).addTo(camadaPlanta);
+    });
+  }
+
+  function limitesDaPlanta() {
+    const pts = [];
+    linhasDaPlanta().camadas.forEach(c => c.linhas.forEach(l => { pts.push(l[0], l[l.length - 1]); }));
+    return pts.length ? L.latLngBounds(pts) : null;
+  }
+
+  // ---- inserir
+  async function lerDxf(arquivo) {
+    $('#arquivo-dxf').value = '';
+    if (st.plantaErro) {
+      toast('Falta criar a tabela da planta no banco: rode banco/04_planta_dxf.sql no Supabase.');
+      console.error('wg_planta:', st.plantaErro); return;
+    }
+    $('#modal-planta').hidden = false;
+    $('#planta-resumo').hidden = true; $('#planta-confirmar').disabled = true;
+    $('#planta-status').hidden = false; $('#planta-status').textContent = 'Lendo ' + arquivo.name + '...';
+    try {
+      const buf = await arquivo.arrayBuffer();
+      let texto;
+      try { texto = new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+      catch (e) { texto = new TextDecoder('windows-1252').decode(buf); } // DXF antigo (acentos em ANSI)
+      const desenho = WGDxf.ler(texto);
+      // zona UTM e centro de referência: pelos poços do projeto
+      const comCoord = st.pocos.filter(p => p.latitude !== null);
+      const lat = comCoord.length ? comCoord.reduce((s, p) => s + +p.latitude, 0) / comCoord.length : null;
+      const lon = comCoord.length ? comCoord.reduce((s, p) => s + +p.longitude, 0) / comCoord.length : null;
+      const zona = lon !== null ? WGDxf.zonaDaLongitude(lon) : 23;
+      st.dxfNovo = { desenho, nome: arquivo.name, lat, lon };
+      $('#planta-zona').value = zona; $('#planta-sul').checked = lat === null ? true : lat < 0;
+      mostrarResumoDxf();
+    } catch (e) {
+      console.error(e);
+      $('#planta-status').innerHTML = '<span class="txt-acima"><b>Não consegui ler o arquivo:</b></span> ' + esc(e.message);
+    }
+  }
+
+  function geoDoDxfNovo() {
+    const n = st.dxfNovo, zona = parseInt($('#planta-zona').value, 10), sul = $('#planta-sul').checked;
+    if (!(zona >= 1 && zona <= 60)) return null;
+    const centro = n.lat !== null ? WGDxf.latLonParaUtm(n.lat, n.lon, zona, sul) : null;
+    return { zona, sul, geo: WGDxf.georreferenciar(n.desenho.bbox, centro) };
+  }
+
+  function mostrarResumoDxf() {
+    const n = st.dxfNovo, d = n.desenho, g = geoDoDxfNovo();
+    $('#planta-status').hidden = true; $('#planta-resumo').hidden = false;
+    const nEnt = Object.values(d.entidades).reduce((a, b) => a + b, 0);
+    const ign = Object.entries(d.ignoradas).map(([k, v]) => `${v} ${k}`).join(', ');
+    const tipo = { utm: 'UTM (X = Leste, Y = Norte)', trocado: 'UTM com os eixos trocados', local: 'coordenadas locais (não é UTM)' };
+    $('#planta-info').innerHTML = [
+      ['Arquivo', esc(n.nome)],
+      ['Desenho', `${fmt(nEnt, 0)} elementos em ${d.camadas.length} camadas`],
+      ['Tamanho', `${fmt(d.bbox.xmax - d.bbox.xmin, 0)} m × ${fmt(d.bbox.ymax - d.bbox.ymin, 0)} m`],
+      ['Coordenadas', g ? tipo[g.geo.tipo] : 'informe a zona UTM'],
+      ...(ign ? [['Não importado', esc(ign)]] : [])
+    ].map(([a, b]) => `<tr><td>${a}</td><td><b>${b}</b></td></tr>`).join('');
+    $('#planta-aviso').hidden = !(g && g.geo.aviso);
+    $('#planta-aviso').textContent = g?.geo.aviso || '';
+    $('#planta-confirmar').disabled = !g || (g.geo.tipo === 'local' && n.lat === null);
+  }
+
+  async function inserirPlanta() {
+    const n = st.dxfNovo, g = geoDoDxfNovo();
+    if (!n || !g) return;
+    const dados = WGDxf.empacotar(n.desenho, g.geo, n.nome, g.zona, g.sul);
+    if (JSON.stringify(dados).length > 6e6) { $('#planta-aviso').hidden = false; $('#planta-aviso').textContent = 'Desenho grande demais para gravar (mais de 6 MB). No CAD, apague o que não precisa e exporte de novo.'; return; }
+    const btn = $('#planta-confirmar'); btn.disabled = true; btn.textContent = 'Gravando...';
+    const { error } = await sb.from('wg_planta').upsert({ projeto_id: st.projetoId, nome: n.nome, dados, atualizado_em: new Date().toISOString() });
+    btn.textContent = 'Inserir no mapa';
+    if (error) { btn.disabled = false; $('#planta-aviso').hidden = false; $('#planta-aviso').textContent = 'O banco recusou: ' + error.message; return; }
+    $('#modal-planta').hidden = true;
+    st.planta = { nome: n.nome, dados }; st.plantaLL = null; st.dxfNovo = null;
+    cfgPlanta.setMostrar(true); cfgPlanta.setOcultas(st.projetoId, new Set());
+    montarPainelPlanta(); trocarView('visao'); renderPlanta();
+    setTimeout(() => { const b = limitesDaPlanta(); if (b && mapaVisivel()) mapa.fitBounds(b.extend(st.pontos.length ? L.latLngBounds(st.pontos) : b), { padding: [30, 30], maxZoom: 20 }); }, 50);
+    toast(g.geo.tipo === 'utm' ? 'Planta inserida. Confira a posição com o satélite.' : 'Planta inserida fora de posição: use "Ajustar posição".');
+  }
+
+  async function removerPlanta() {
+    if (!st.planta || !window.confirm(`Remover a planta "${st.planta.nome}" deste projeto?\n\nOs poços e resultados não são afetados.`)) return;
+    const { error } = await sb.from('wg_planta').delete().eq('projeto_id', st.projetoId);
+    if (error) { toast('Não foi possível remover a planta.'); console.error(error); return; }
+    st.planta = null; st.plantaLL = null; cancelarAjuste(true);
+    montarPainelPlanta(); renderPlanta(); toast('Planta removida.');
+  }
+
+  // ---- ajustar posição por pontos de controle
+  // 1 ponto desloca a planta; 2 pontos deslocam e giram (a escala do desenho é mantida).
+  function iniciarAjuste() {
+    if (!st.planta) return;
+    cfgPlanta.setMostrar(true); $('#f-planta').checked = true;
+    trocarView('visao');
+    st.ajuste = { original: st.planta.dados.afim.slice(), pares: [], de: null };
+    camadaAjuste.clearLayers();
+    mapa.closePopup();
+    mapa.getContainer().classList.add('mapa-ajustando');
+    $('#ajuste-barra').hidden = false;
+    renderPlanta(); textoAjuste();
+    $('#ajuste-barra').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  function textoAjuste() {
+    const a = st.ajuste; if (!a) return;
+    const n = a.pares.length + 1;
+    if (a.pares.length >= 2) { $('#ajuste-passo').textContent = 'Confira o encaixe'; $('#ajuste-dica').textContent = 'Se ficou bom, clique em "Salvar posição". Senão, "Recomeçar".'; }
+    else if (!a.de) {
+      $('#ajuste-passo').textContent = `Ponto ${n}: clique num canto da PLANTA`;
+      $('#ajuste-dica').textContent = n === 1 ? 'Escolha um ponto fácil de achar no satélite (canto de prédio, muro). O clique gruda no vértice mais próximo.'
+        : 'Opcional: um 2º ponto, longe do primeiro, corrige também a rotação. Ou clique em "Salvar posição".';
+    } else {
+      $('#ajuste-passo').textContent = `Ponto ${n}: agora clique onde ele fica no MAPA`;
+      $('#ajuste-dica').textContent = 'Clique no lugar correspondente no satélite (ou num poço, se o ponto da planta for um poço).';
+    }
+    $('#ajuste-salvar').disabled = a.pares.length === 0;
+  }
+
+  function cliqueAjuste(ev) {
+    const a = st.ajuste; if (!a || a.pares.length >= 2) return;
+    const d = st.planta.dados, alvo = WGDxf.latLonParaUtm(ev.latlng.lat, ev.latlng.lng, d.zona, d.sul);
+    const pino = (ll, txt, cls) => L.marker(ll, { interactive: false, keyboard: false,
+      icon: L.divIcon({ className: '', html: `<div class="pino-ajuste ${cls}">${txt}</div>`, iconSize: [20, 20] }) }).addTo(camadaAjuste);
+    if (!a.de) {
+      // gruda no vértice da planta mais próximo (até 15 pixels); senão usa o ponto clicado
+      const mPorPx = 40075016 * Math.cos(ev.latlng.lat * Math.PI / 180) / (256 * Math.pow(2, mapa.getZoom()));
+      let melhor = null, dist = 15 * mPorPx;
+      const ocultas = cfgPlanta.ocultas(st.projetoId);
+      d.camadas.forEach(c => { if (ocultas.has(c.nome)) return; c.l.forEach(l => {
+        for (let i = 0; i < l.length; i += 2) {
+          const u = WGDxf.paraUtm(d, l[i], l[i + 1]), dd = Math.hypot(u.E - alvo.E, u.N - alvo.N);
+          if (dd < dist) { dist = dd; melhor = u; }
+        }
+      }); });
+      const atual = melhor || alvo; // posição do ponto com a planta onde ela está AGORA
+      // o mesmo ponto na posição ORIGINAL (antes deste ajuste): desfaz o ajuste parcial já aplicado
+      a.de = { original: desfazer(a, atual), atual };
+      const ll = WGDxf.utmParaLatLon(atual.E, atual.N, d.zona, d.sul);
+      a.pinoDe = pino([ll.lat, ll.lon], a.pares.length + 1, 'de');
+    } else {
+      a.pares.push({ de: a.de.original, para: alvo });
+      a.de = null;
+      if (a.pinoDe) { camadaAjuste.removeLayer(a.pinoDe); a.pinoDe = null; }
+      pino(ev.latlng, a.pares.length, '');
+      d.afim = WGDxf.ajustar(a.original, a.pares);
+      st.plantaLL = null; renderPlanta();
+    }
+    textoAjuste();
+  }
+
+  /** Leva um ponto UTM da posição atual da planta de volta para a posição original (antes do ajuste em curso). */
+  function desfazer(a, p) {
+    const atual = st.planta.dados.afim, o = a.original;
+    // inverte "atual" para achar o ponto no desenho e reaplica "original"
+    const det = atual[0] * atual[3] - atual[1] * atual[2];
+    const x = (atual[3] * (p.E - atual[4]) - atual[1] * (p.N - atual[5])) / det, y = (-atual[2] * (p.E - atual[4]) + atual[0] * (p.N - atual[5])) / det;
+    return { E: o[0] * x + o[1] * y + o[4], N: o[2] * x + o[3] * y + o[5] };
+  }
+
+  function cancelarAjuste(silencioso) {
+    if (!st.ajuste) return;
+    if (st.planta) { st.planta.dados.afim = st.ajuste.original; st.plantaLL = null; }
+    st.ajuste = null;
+    if (camadaAjuste) camadaAjuste.clearLayers();
+    if (mapa) mapa.getContainer().classList.remove('mapa-ajustando');
+    $('#ajuste-barra').hidden = true;
+    if (!silencioso) renderPlanta();
+  }
+
+  async function salvarAjuste() {
+    const a = st.ajuste; if (!a || !a.pares.length) return;
+    const btn = $('#ajuste-salvar'); btn.disabled = true; btn.textContent = 'Salvando...';
+    const dados = st.planta.dados;
+    dados.tipo = 'ajustado';
+    const { error } = await sb.from('wg_planta').upsert({ projeto_id: st.projetoId, nome: st.planta.nome, dados, atualizado_em: new Date().toISOString() });
+    btn.textContent = 'Salvar posição';
+    if (error) { btn.disabled = false; toast('Não foi possível salvar a posição: ' + error.message); return; }
+    st.ajuste = null; camadaAjuste.clearLayers();
+    mapa.getContainer().classList.remove('mapa-ajustando');
+    $('#ajuste-barra').hidden = true;
+    toast('Posição da planta salva.');
+  }
+
   // ------------------------------------------------------------- excluir projeto
   /** Abre a confirmação: mostra o que será apagado e exige digitar o nome do projeto. */
   function abrirExcluirProjeto() {
@@ -864,6 +1461,7 @@ const WebGeo = (() => {
     if (pocos) itens.push(`${n(pocos, 'poço', 'poços')} cadastrados no WebGeo`);
     if (st.campanhas.length) itens.push(`${n(st.campanhas.length, 'campanha', 'campanhas')} e ${n(st.resultados.length, 'resultado', 'resultados')} de laboratório`);
     if (st.medicoes.length) itens.push(`${n(st.medicoes.length, 'medição', 'medições')} de nível d'água`);
+    if (st.planta) itens.push(`A planta "${st.planta.nome}"`);
     if (!itens.length) itens.push('Este projeto não tem dados no WebGeo.');
     if (st.totalFichas) itens.push(`${n(st.totalFichas, 'ficha do Perfil fica', 'fichas do Perfil ficam')} sem projeto (não ${st.totalFichas === 1 ? 'é apagada' : 'são apagadas'})`);
     $('#excluir-nome').textContent = proj.nome;
@@ -923,6 +1521,7 @@ const WebGeo = (() => {
           .forEach(r => { if (!st.perfis.has(r.poco_id)) st.perfis.set(r.poco_id, []); st.perfis.get(r.poco_id).push(r); });
       }
       juntarFichas(pocos, fichas);
+      await carregarPlanta();
 
       // Parâmetros com resultado neste projeto; começa pelo que tem mais poços acima do VI
       const comDados = new Set(resultados.map(r => r.parametro_id));
@@ -1045,6 +1644,7 @@ const WebGeo = (() => {
     renderKPIs(param);
     renderMapa(param, enquadrar);
     renderPluma(param);
+    renderPlanta();
     renderEvolucao(param);
     renderTabela(param);
   }
@@ -1077,7 +1677,13 @@ const WebGeo = (() => {
     L.control.scale({ imperial: false, position: 'bottomright' }).addTo(mapa);
     // a pluma fica por baixo dos poços: imagem (350) < linha do limiar (380) < poços (400)
     mapa.createPane('pluma').style.zIndex = 350;
+    mapa.createPane('planta').style.zIndex = 360;      // planta DXF: acima da pluma, abaixo da linha do limiar
     mapa.createPane('plumaLinha').style.zIndex = 380;
+    rendPlanta = L.canvas({ pane: 'planta', padding: .5 }); // canvas: aguenta milhares de linhas sem pesar
+    camadaPlanta = L.layerGroup().addTo(mapa);
+    camadaAjuste = L.layerGroup().addTo(mapa);
+    mapa.on('click', cliqueAjuste);
+    mapa.on('popupopen', () => { if (st.ajuste) setTimeout(() => mapa.closePopup(), 0); }); // ajustando a planta: sem popups
     camadaPluma = L.layerGroup().addTo(mapa);
     camadaPocos = L.layerGroup().addTo(mapa);
     mapa.on('zoomend', atualizarRotulos);
@@ -1610,5 +2216,5 @@ const WebGeo = (() => {
     $('#imp-status').textContent = '';
   }
 
-  return { iniciar };
+  return { iniciar, _teste: { mapa: () => mapa, estado: st } }; // _teste: usado só pelos testes automáticos
 })();

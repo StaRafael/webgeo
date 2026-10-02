@@ -13,6 +13,7 @@ Portal de monitoramento ambiental de poços (PM/PMN), irmão do **Perfil de Sond
 - **Pluma (IDW):** mostra a área acima do limiar, o centróide e a evolução entre campanhas.
 - **Popup do poço:** perfil litológico e construtivo, vindo da ficha do Perfil.
 - **Projetos:** os mesmos do Perfil; dá para criar e excluir pelo menu.
+- **Planta em DXF:** a planta do projeto por cima do satélite, com camadas, cor e ajuste de posição por pontos.
 
 ## Como a pluma é calculada
 - **Interpolação:** IDW em escala logarítmica (interpola o log da concentração), com todos os poços e potência p ajustável (padrão 2). Em log, a pluma fica em volta dos poços acima do limiar e termina antes dos poços limpos.

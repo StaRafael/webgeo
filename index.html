@@ -121,6 +121,32 @@
       </div>
     </div>
 
+    <div class="rail-filtros rail-planta">
+      <div class="rail-projeto-cab"><span class="rail-projeto-label">Planta (DXF)</span></div>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-planta-inserir">Inserir planta (DXF)</button>
+      <input type="file" id="arquivo-dxf" accept=".dxf" hidden>
+      <div id="planta-painel" class="planta-painel" hidden>
+        <label class="chk"><input type="checkbox" id="f-planta" checked><span class="box"></span><b id="planta-nome">planta.dxf</b></label>
+        <div class="rail-projeto">
+          <label class="rail-projeto-label" for="f-planta-cor">Cor das linhas</label>
+          <select id="f-planta-cor" class="rail-projeto-select">
+            <option value="branco">Branco</option><option value="amarelo">Amarelo</option>
+            <option value="preto">Preto</option><option value="cad">Cores do CAD</option>
+          </select>
+        </div>
+        <details class="planta-camadas">
+          <summary><span id="planta-camadas-tit">Camadas</span></summary>
+          <div class="planta-camadas-acoes"><button type="button" class="btn-mini" id="btn-camadas-todas">todas</button><button type="button" class="btn-mini" id="btn-camadas-nenhuma">nenhuma</button></div>
+          <div id="planta-camadas"></div>
+        </details>
+        <div class="planta-acoes">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-planta-ajustar">Ajustar posição</button>
+          <button type="button" class="btn-mini" id="btn-planta-trocar">Trocar arquivo</button>
+          <button type="button" class="btn-mini btn-mini-perigo" id="btn-planta-remover">Remover planta</button>
+        </div>
+      </div>
+    </div>
+
     <div class="rail-foot">Os projetos são os mesmos do Perfil de Sondagem. As fichas com coordenada aparecem no mapa sozinhas; os resultados de laboratório entram pela planilha modelo (uma por campanha). Valores orientadores: CETESB DD 125/2021/E.</div>
   </aside>
 
@@ -151,6 +177,14 @@
       <section class="section">
         <div class="section-head"><span class="section-num">1</span><h2>Mapa dos poços e pluma</h2><span class="hint">clique num poço para ver o resultado, o histórico e o perfil</span></div>
         <div class="section-body section-mapa">
+          <div id="ajuste-barra" class="ajuste-barra" hidden>
+            <div class="ajuste-texto"><b id="ajuste-passo">Ajustar posição da planta</b><span id="ajuste-dica"></span></div>
+            <div class="ajuste-botoes">
+              <button type="button" class="btn btn-primary btn-sm2" id="ajuste-salvar" disabled>Salvar posição</button>
+              <button type="button" class="btn btn-ghost btn-sm2" id="ajuste-recomecar">Recomeçar</button>
+              <button type="button" class="btn btn-ghost btn-sm2" id="ajuste-cancelar">Cancelar</button>
+            </div>
+          </div>
           <div id="mapa"></div>
           <div class="legenda">
             <span><i class="bola st-acima"></i>Acima do VI</span>
@@ -159,6 +193,7 @@
             <span><i class="bola st-sem"></i>Sem resultado</span>
             <span><i class="bola st-sondagem"></i>Tem ficha no Perfil</span>
             <span><i class="ponto-sondagem"></i>Sondagem do Perfil (sem poço)</span>
+            <span id="leg-planta" hidden><i class="leg-planta"></i>Planta (DXF)</span>
           </div>
           <div class="legenda legenda-pluma" id="legenda-pluma">
             <span class="leg-tit" id="leg-tit">Pluma (µg/L)</span>
@@ -247,6 +282,30 @@
 
     <p class="note">Portal de monitoramento ambiental ligado ao Perfil de Sondagem: mesma conta, mesma empresa e os mesmos projetos. Toda ficha do Perfil com coordenada aparece no mapa do projeto; se ela tem "Poço de monitoramento nº", os resultados de laboratório desse poço se ligam a ela.</p>
   </main>
+</div>
+
+<!-- Inserir planta em DXF -->
+<div class="modal-fundo" id="modal-planta" hidden>
+  <div class="modal-caixa" role="dialog" aria-modal="true" aria-labelledby="modal-planta-tit">
+    <div class="modal-cab"><span id="modal-planta-tit">Inserir planta (DXF)</span>
+      <button type="button" class="modal-fechar" id="planta-fechar" aria-label="Fechar">✕</button></div>
+    <div class="modal-corpo">
+      <p id="planta-status">Lendo o arquivo...</p>
+      <div id="planta-resumo" hidden>
+        <table class="imp-cont planta-info"><tbody id="planta-info"></tbody></table>
+        <div class="auth-error planta-aviso" id="planta-aviso" hidden></div>
+        <div class="planta-zona">
+          <div class="field"><label for="planta-zona">Zona UTM</label><input type="text" inputmode="numeric" id="planta-zona" value="23"></div>
+          <label class="chk"><input type="checkbox" id="planta-sul" checked><span class="box"></span>Hemisfério sul</label>
+        </div>
+        <p class="excluir-nota">A planta fica salva neste projeto, para todos da empresa. Textos, hachuras e cotas do desenho não são importados. Se já houver uma planta no projeto, ela é substituída.</p>
+      </div>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-ghost" id="planta-cancelar">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="planta-confirmar" disabled>Inserir no mapa</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Confirmação de exclusão de projeto -->
