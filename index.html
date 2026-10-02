@@ -121,6 +121,36 @@
       </div>
     </div>
 
+    <div class="rail-filtros rail-pot">
+      <div class="rail-projeto">
+        <label class="chk"><input type="checkbox" id="f-pot"><span class="box"></span><b>Mapa potenciométrico</b></label>
+      </div>
+      <div id="pot-painel" class="pot-painel" hidden>
+        <div class="rail-duplo">
+          <div class="rail-projeto">
+            <label class="rail-projeto-label" for="f-pot-rede">Poços</label>
+            <select id="f-pot-rede" class="rail-projeto-select"></select>
+          </div>
+          <div class="rail-projeto">
+            <label class="rail-projeto-label" for="f-pot-int">Curvas a cada</label>
+            <select id="f-pot-int" class="rail-projeto-select">
+              <option value="0" selected>Automático</option><option value="0.05">0,05 m</option><option value="0.1">0,10 m</option>
+              <option value="0.2">0,20 m</option><option value="0.25">0,25 m</option><option value="0.5">0,50 m</option><option value="1">1,00 m</option>
+            </select>
+          </div>
+        </div>
+        <div class="rail-projeto">
+          <label class="rail-projeto-label" for="f-pot-suav">Superfície</label>
+          <select id="f-pot-suav" class="rail-projeto-select">
+            <option value="0" selected>Passa pelos poços</option><option value="0.002">Suavização leve</option>
+            <option value="0.01">Suavização média</option><option value="0.05">Suavização forte</option>
+          </select>
+        </div>
+        <label class="chk"><input type="checkbox" id="f-pot-setas" checked><span class="box"></span>Setas de fluxo</label>
+        <p class="pot-resumo" id="pot-resumo"></p>
+      </div>
+    </div>
+
     <div class="rail-filtros rail-planta">
       <div class="rail-projeto-cab"><span class="rail-projeto-label">Planta (DXF)</span></div>
       <button type="button" class="btn btn-ghost btn-sm" id="btn-planta-inserir">Inserir planta (DXF)</button>
@@ -201,6 +231,12 @@
             <span><i class="leg-limiar"></i><span id="leg-limiar">Limiar</span></span>
             <span><i class="leg-centro"></i>Centróide</span>
             <span><i class="leg-centro leg-centro-ini"></i>Centróide na 1ª campanha</span>
+          </div>
+          <div class="legenda legenda-pot" id="legenda-pot" hidden>
+            <span class="leg-tit">Potenciométrico (m)</span>
+            <span><i class="leg-pot"></i>Equipotencial</span>
+            <span id="leg-pot-setas"><i class="leg-seta">&#10140;</i>Sentido do fluxo</span>
+            <span id="leg-pot-resumo"></span>
           </div>
           <div class="legenda-nota"><span>Aproxime o mapa para ver o nome de todos os poços.</span> <span id="mapa-nota"></span></div>
         </div>

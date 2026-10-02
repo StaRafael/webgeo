@@ -298,6 +298,23 @@
   .leg-limiar{display:inline-block;width:22px;height:0;border-top:2px dashed var(--ink);}
   .leg-centro{display:inline-block;width:12px;height:12px;border-radius:50%;background:#fff;border:3px solid #172621;}
   .leg-centro-ini{background:transparent;border:2px dashed #172621;}
+
+  /* ============ POTENCIOMÉTRICO ============ */
+  .rail-pot{margin-top:14px;}
+  .rail-pot .chk{font-size:13px;}
+  .pot-painel{display:flex;flex-direction:column;gap:10px;margin-top:10px;}
+  .pot-painel[hidden]{display:none;}
+  .pot-resumo{margin:0;font-size:11.5px;line-height:1.45;color:var(--ink-faint);}
+  .legenda-pot{padding-top:4px;}
+  .legenda-pot[hidden]{display:none;}
+  .leg-pot{display:inline-block;width:22px;height:0;border-top:2px solid #1565A8;}
+  .leg-seta{font-style:normal;font-size:15px;line-height:1;color:#0B3558;}
+  .rotulo-pot{overflow:visible;}
+  .rotulo-pot span{
+    position:absolute;transform:translate(-50%,-50%);white-space:nowrap;padding:0 4px;border-radius:3px;
+    background:#fff;border:1px solid #1565A8;color:#0B3558;font-family:var(--font-mono);font-size:10.5px;font-weight:600;line-height:15px;
+  }
+  .rotulo-carga{margin-left:3px;padding:0 3px;border-radius:2px;background:#1565A8;color:#fff;text-shadow:none;font-weight:500;}
   .ponto-sondagem{display:inline-block;width:12px;height:12px;background:#5FBE9C;border:2px solid #fff;transform:rotate(45deg);box-shadow:0 0 0 1px rgba(0,0,0,.45);}
   .leaflet-tooltip.rotulo-sond{color:#DCEAE4;}
   .imp-proj{font-style:normal;font-size:11.5px;color:var(--accent-ink);}

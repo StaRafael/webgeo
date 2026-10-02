@@ -122,6 +122,19 @@ No menu, em **Planta (DXF)**, clique em **Inserir planta (DXF)** e escolha o arq
 
 ---
 
+## Mapa potenciométrico
+
+No menu, marque **Mapa potenciométrico**. Ele usa a campanha selecionada e não precisa de nada novo no banco.
+
+- **De onde vem:** carga = **Cota topo (m)** da aba *Pocos* menos **N.A. (m)** da aba *Campo*. Poço sem cota ou sem coordenada fica de fora.
+- **Poços:** escolha uma rede por vez (PM = rasa; PMN = multinível). Misturar níveis distorce o mapa.
+- **Curvas a cada:** intervalo entre equipotenciais; no automático o sistema escolhe.
+- **Superfície:** "Passa pelos poços" respeita cada medida. As suavizações amortecem poços destoantes e o menu mostra quanto a superfície se afastou do medido.
+- **Setas de fluxo:** apontam do maior para o menor potencial.
+- **Com o potenciométrico ligado**, a carga de cada poço aparece ao lado do nome no mapa.
+
+---
+
 ## Como os dois sistemas se ligam
 
 | No Perfil | No WebGeo |

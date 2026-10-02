@@ -623,7 +623,8 @@ const WGPluma = (() => {
     return a.map((x, n) => Math.round(x + (b[n] - x) * r));
   }
 
-  return { grade, idw, agrupar, areaECentroide, distancia, isolinha, cor, RAMPA, projecao };
+  return { grade, idw, agrupar, areaECentroide, distancia, isolinha, cor, RAMPA, projecao,
+    emendar, suavizar, envoltoria, espacamentos, distanciaFora };
 })();
 
 /* =====================================================================
@@ -940,9 +941,191 @@ const WGDxf = (() => {
   return { ler, georreferenciar, empacotar, ajustar, paraUtm, utmParaLatLon, latLonParaUtm, zonaDaLongitude };
 })();
 
-if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf };
 
 
+
+/* =====================================================================
+   3b. MAPA POTENCIOMÉTRICO (funções puras, sem tela)
+   Superfície da carga hidráulica (cota do topo - N.A.), curvas
+   equipotenciais e sentido do fluxo (do maior para o menor potencial).
+   ===================================================================== */
+const WGPot = (() => {
+
+  /** Resolve A.x = b (eliminação de Gauss com pivô). Devolve null se o sistema não tem solução única. */
+  function resolver(A, b) {
+    const n = b.length, M = A.map((l, i) => [...l, b[i]]);
+    for (let c = 0; c < n; c++) {
+      let piv = c;
+      for (let l = c + 1; l < n; l++) if (Math.abs(M[l][c]) > Math.abs(M[piv][c])) piv = l;
+      if (Math.abs(M[piv][c]) < 1e-12) return null;
+      [M[c], M[piv]] = [M[piv], M[c]];
+      for (let l = c + 1; l < n; l++) {
+        const f = M[l][c] / M[c][c];
+        if (f) for (let k = c; k <= n; k++) M[l][k] -= f * M[c][k];
+      }
+    }
+    const x = new Array(n);
+    for (let l = n - 1; l >= 0; l--) {
+      let s = M[l][n];
+      for (let k = l + 1; k < n; k++) s -= M[l][k] * x[k];
+      x[l] = s / M[l][l];
+    }
+    return x;
+  }
+
+  /** Poços no mesmo ponto (até `raio` m) viram um ponto só, com a MÉDIA das cargas. */
+  function agrupar(pts, raio = 5) {
+    const grupos = [];
+    pts.forEach(p => {
+      const g = grupos.find(q => Math.hypot(q.x - p.x, q.y - p.y) <= raio);
+      if (g) { g.soma += p.h; g.n++; g.h = g.soma / g.n; } else grupos.push({ x: p.x, y: p.y, h: p.h, soma: p.h, n: 1 });
+    });
+    return grupos;
+  }
+
+  /**
+   * Ajusta a superfície potenciométrica: plano regional + spline de placa fina (thin plate spline).
+   * É a superfície mais "lisa" que passa pelos poços. Com suav > 0 ela deixa de passar exatamente
+   * em cada poço e amortece os valores destoantes (erro de cota, poço em nível diferente).
+   * pts: [{x, y, h}] em metros. Devolve { f(x,y), grad(x,y), residuos[] } ou null.
+   */
+  function ajustar(pts, suav = 0) {
+    const n = pts.length;
+    if (n < 3) return null;
+    const cx = pts.reduce((s, p) => s + p.x, 0) / n, cy = pts.reduce((s, p) => s + p.y, 0) / n;
+    const L = Math.max(1, ...pts.map(p => Math.hypot(p.x - cx, p.y - cy)));  // escala: melhora a conta
+    const q = pts.map(p => ({ x: (p.x - cx) / L, y: (p.y - cy) / L, h: p.h }));
+    const hm = q.reduce((s, p) => s + p.h, 0) / n;
+    const phi = r2 => r2 > 0 ? .5 * r2 * Math.log(r2) : 0;                   // r² ln r
+    const N = n + 3, A = Array.from({ length: N }, () => new Array(N).fill(0)), b = new Array(N).fill(0);
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) A[i][j] = phi((q[i].x - q[j].x) ** 2 + (q[i].y - q[j].y) ** 2);
+      A[i][i] += suav;
+      A[i][n] = A[n][i] = 1; A[i][n + 1] = A[n + 1][i] = q[i].x; A[i][n + 2] = A[n + 2][i] = q[i].y;
+      b[i] = q[i].h - hm;
+    }
+    let s = resolver(A, b), plano = false;
+    if (!s) {                                                               // poços alinhados: só o plano médio
+      plano = true;
+      s = new Array(N).fill(0);
+    }
+    const w = s.slice(0, n), a0 = s[n], a1 = s[n + 1], a2 = s[n + 2];
+    const f = (x, y) => {
+      const u = (x - cx) / L, v = (y - cy) / L;
+      let z = hm + a0 + a1 * u + a2 * v;
+      for (let i = 0; i < n; i++) z += w[i] * phi((u - q[i].x) ** 2 + (v - q[i].y) ** 2);
+      return z;
+    };
+    /** Gradiente (dh/dx, dh/dy) em m/m. */
+    const grad = (x, y) => {
+      const u = (x - cx) / L, v = (y - cy) / L;
+      let gx = a1, gy = a2;
+      for (let i = 0; i < n; i++) {
+        const dx = u - q[i].x, dy = v - q[i].y, r2 = dx * dx + dy * dy;
+        if (r2 > 0) { const k = w[i] * (Math.log(r2) + 1); gx += k * dx; gy += k * dy; }
+      }
+      return { x: gx / L, y: gy / L };
+    };
+    return { f, grad, plano, residuos: pts.map(p => f(p.x, p.y) - p.h) };
+  }
+
+  /**
+   * Superfície na grade. Só dentro da rede de poços (envoltória + uma folga): fora dela não há dado.
+   * amostras: [{lat, lon, h}]. Devolve { g, v, modelo, pts, hmin, hmax } ou null (menos de 3 pontos).
+   */
+  function superficie(amostras, suav = 0, cel = 2) {
+    if (amostras.length < 3) return null;
+    const g = WGPluma.grade(amostras, cel, 40000);
+    const pts = agrupar(amostras.map(a => ({ ...g.proj.paraXY(a.lat, a.lon), h: a.h })), 5);
+    if (pts.length < 3) return null;
+    const modelo = ajustar(pts, suav);
+    const env = WGPluma.envoltoria(pts);
+    const esp = WGPluma.espacamentos(pts).sort((a, b) => a - b);
+    const folga = Math.min(15, esp[Math.floor(esp.length / 2)] / 2);
+    const hmin = Math.min(...pts.map(p => p.h)), hmax = Math.max(...pts.map(p => p.h));
+    const v = new Float64Array(g.nx * g.ny).fill(NaN);
+    for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) {
+      const x = g.xmin + (i + .5) * g.cel, y = g.ymin + (j + .5) * g.cel;
+      if (WGPluma.distanciaFora(x, y, env) > folga) continue;
+      v[j * g.nx + i] = Math.min(hmax, Math.max(hmin, modelo.f(x, y)));    // nunca passa do medido
+    }
+    return { g, v, modelo, pts, env, folga, hmin, hmax };
+  }
+
+  /** Intervalo "redondo" entre curvas, para dar de 6 a 12 curvas. */
+  function intervaloAuto(hmin, hmax) {
+    const faixa = hmax - hmin;
+    if (!(faixa > 0)) return 0.1;
+    return [0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5, 10, 20, 50].find(p => faixa / p <= 12) || 100;
+  }
+
+  /** Níveis das curvas: múltiplos do intervalo dentro da faixa medida. */
+  function niveis(hmin, hmax, passo) {
+    const l = [];
+    for (let k = Math.ceil(hmin / passo - 1e-9); k * passo <= hmax + 1e-9 && l.length < 200; k++) l.push(+(k * passo).toFixed(4));
+    return l;
+  }
+
+  /** Curva equipotencial de um nível: lista de curvas [[lat,lon], ...], emendadas e suavizadas. */
+  function curva(sup, nivel) {
+    const { g, v } = sup, segs = [];
+    const ponto = (i, j) => ({ x: g.xmin + (i + .5) * g.cel, y: g.ymin + (j + .5) * g.cel });
+    for (let j = 0; j < g.ny - 1; j++) for (let i = 0; i < g.nx - 1; i++) {
+      const c = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]];
+      const vv = c.map(([a, b]) => v[b * g.nx + a]);
+      if (vv.some(Number.isNaN)) continue;
+      const caso = vv.reduce((s, x, k) => s | ((x >= nivel ? 1 : 0) << k), 0);
+      if (caso === 0 || caso === 15) continue;
+      const pp = c.map(([a, b]) => ponto(a, b));
+      const e = k => {
+        const k2 = (k + 1) % 4, t = (nivel - vv[k]) / (vv[k2] - vv[k]);
+        return { x: pp[k].x + t * (pp[k2].x - pp[k].x), y: pp[k].y + t * (pp[k2].y - pp[k].y) };
+      };
+      const cruzam = [0, 1, 2, 3].filter(k => ((caso >> k) & 1) !== ((caso >> ((k + 1) % 4)) & 1));
+      if (cruzam.length === 2) segs.push([e(cruzam[0]), e(cruzam[1])]);
+      else if (cruzam.length === 4) { segs.push([e(0), e(1)]); segs.push([e(2), e(3)]); }
+    }
+    return WGPluma.emendar(segs).filter(c => c.length > 2)
+      .map(c => WGPluma.suavizar(c, 2).map(p => { const ll = g.proj.paraLatLon(p.x, p.y); return [ll.lat, ll.lon]; }));
+  }
+
+  /**
+   * Sentido do fluxo: setas numa malha regular, apontando para onde a carga diminui.
+   * Devolve { setas: [{de:[lat,lon], ate:[lat,lon], asa1, asa2, i}], gradMedio, azimute, rumo }.
+   * azimute: graus a partir do Norte, sentido horário (direção média do fluxo).
+   */
+  function fluxo(sup, passo = null) {
+    const { g, v, modelo } = sup;
+    const larg = g.nx * g.cel, alt = g.ny * g.cel;
+    passo = passo || Math.max(8, Math.round(Math.sqrt(larg * alt / 120)));
+    const comp = passo * .5, setas = [];
+    let sx = 0, sy = 0, si = 0, n = 0;
+    const ll = (x, y) => { const p = g.proj.paraLatLon(x, y); return [p.lat, p.lon]; };
+    for (let y = g.ymin + passo / 2; y < g.ymin + alt; y += passo) for (let x = g.xmin + passo / 2; x < g.xmin + larg; x += passo) {
+      const i = Math.floor((x - g.xmin) / g.cel), j = Math.floor((y - g.ymin) / g.cel);
+      if (i < 0 || j < 0 || i >= g.nx || j >= g.ny || Number.isNaN(v[j * g.nx + i])) continue;
+      const gr = modelo.grad(x, y), m = Math.hypot(gr.x, gr.y);
+      if (!(m > 1e-7)) continue;
+      const ux = -gr.x / m, uy = -gr.y / m;                 // fluxo = contra o gradiente
+      sx += ux * m; sy += uy * m; si += m; n++;
+      const x0 = x - ux * comp / 2, y0 = y - uy * comp / 2, x1 = x + ux * comp / 2, y1 = y + uy * comp / 2;
+      const a = comp * .32, cs = Math.cos(2.6), sn = Math.sin(2.6); // asas a ~150° do sentido
+      setas.push({
+        de: ll(x0, y0), ate: ll(x1, y1), i: m,
+        asa1: ll(x1 + a * (ux * cs - uy * sn), y1 + a * (ux * sn + uy * cs)),
+        asa2: ll(x1 + a * (ux * cs + uy * sn), y1 + a * (-ux * sn + uy * cs))
+      });
+    }
+    if (!n) return { setas, gradMedio: null, azimute: null, rumo: null };
+    const azimute = (Math.atan2(sx, sy) * 180 / Math.PI + 360) % 360;
+    const rumo = ['N', 'NE', 'L', 'SE', 'S', 'SO', 'O', 'NO'][Math.round(azimute / 45) % 8];
+    return { setas, gradMedio: si / n, azimute, rumo, constancia: Math.hypot(sx, sy) / si };
+  }
+
+  return { ajustar, agrupar, superficie, intervaloAuto, niveis, curva, fluxo };
+})();
+
+if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf, WGPot };
 
 /* =====================================================================
    4. APLICAÇÃO (tela)
@@ -955,7 +1138,7 @@ if (typeof window !== 'undefined' && window.document) {
 
 const WebGeo = (() => {
   let sb;                       // cliente Supabase
-  let mapa, camadaPocos, camadaPluma, camadaPlanta, camadaAjuste, rendPlanta;
+  let mapa, camadaPocos, camadaPluma, camadaPot, camadaPlanta, camadaAjuste, rendPlanta;
   let graficos = {};
   let usuarioCarregado = null;  // evita recarregar a tela quando o Supabase só renova o token
   const st = {
@@ -967,6 +1150,8 @@ const WebGeo = (() => {
     perfis: new Map(),            // poco_id -> intervalos da aba Litologia (wg_perfil_poco)
     pluma: { ativa: true, limiar: null, p: 2, cel: 2 }, // limiar null = usa o VI do parâmetro
     calc: null,                   // resultado da última interpolação
+    pot: { ativa: false, rede: null, intervalo: 0, suav: 0, setas: true }, // rede null = escolhe sozinho; intervalo 0 = automático
+    potCalc: null,                // superfície potenciométrica da campanha selecionada
     planta: null, plantaLL: null, plantaErro: null, dxfNovo: null, ajuste: null // planta em DXF do projeto
   };
 
@@ -1105,6 +1290,11 @@ const WebGeo = (() => {
     $('#f-pluma').addEventListener('change', e => { st.pluma.ativa = e.target.checked; render(); });
     $('#f-idw').addEventListener('change', e => { st.pluma.p = +e.target.value; render(); });
     $('#f-celula').addEventListener('change', e => { st.pluma.cel = +e.target.value; render(); });
+    $('#f-pot').addEventListener('change', e => { st.pot.ativa = e.target.checked; render(); });
+    $('#f-pot-rede').addEventListener('change', e => { st.pot.rede = e.target.value; st.pot.redeEscolhida = true; render(); });
+    $('#f-pot-int').addEventListener('change', e => { st.pot.intervalo = +e.target.value; render(); });
+    $('#f-pot-suav').addEventListener('change', e => { st.pot.suav = +e.target.value; render(); });
+    $('#f-pot-setas').addEventListener('change', e => { st.pot.setas = e.target.checked; render(); });
     $('#f-limiar').addEventListener('change', e => {
       const v = WGImport.numero(e.target.value);
       st.pluma.limiar = v !== null && v > 0 ? v : null; // vazio = volta para o VI
@@ -1541,6 +1731,7 @@ const WebGeo = (() => {
       $('#f-campanha').value = st.campanhaId ?? '';
 
       montarFiltroRede();
+      montarFiltroPot();
       render(true);
     } catch (e) { erroGeral(e); }
   }
@@ -1640,10 +1831,12 @@ const WebGeo = (() => {
     $('#f-limiar').value = limiar != null ? fmt(limiar, 4) : '';
     $('#f-limiar-un').textContent = param?.unidade || 'µg/L';
     st.calc = calcularPlumas(param, limiar);
+    st.potCalc = calcularPot();
 
     renderKPIs(param);
     renderMapa(param, enquadrar);
     renderPluma(param);
+    renderPot();
     renderPlanta();
     renderEvolucao(param);
     renderTabela(param);
@@ -1679,12 +1872,14 @@ const WebGeo = (() => {
     mapa.createPane('pluma').style.zIndex = 350;
     mapa.createPane('planta').style.zIndex = 360;      // planta DXF: acima da pluma, abaixo da linha do limiar
     mapa.createPane('plumaLinha').style.zIndex = 380;
+    mapa.createPane('pot').style.zIndex = 385;         // curvas equipotenciais e setas de fluxo
     rendPlanta = L.canvas({ pane: 'planta', padding: .5 }); // canvas: aguenta milhares de linhas sem pesar
     camadaPlanta = L.layerGroup().addTo(mapa);
     camadaAjuste = L.layerGroup().addTo(mapa);
     mapa.on('click', cliqueAjuste);
     mapa.on('popupopen', () => { if (st.ajuste) setTimeout(() => mapa.closePopup(), 0); }); // ajustando a planta: sem popups
     camadaPluma = L.layerGroup().addTo(mapa);
+    camadaPot = L.layerGroup().addTo(mapa);
     camadaPocos = L.layerGroup().addTo(mapa);
     mapa.on('zoomend', atualizarRotulos);
     atualizarRotulos();
@@ -1705,6 +1900,7 @@ const WebGeo = (() => {
     const { pocos, porPoco } = selecao();
     const pts = [];
     const ordem = { sem: 0, lq: 1, abaixo: 2, acima: 3 }; // os acima do VI ficam por cima
+    const carga = st.potCalc?.porPoco || new Map();       // potenciométrico ligado: carga ao lado do nome
     pocos.filter(p => p.latitude !== null)
       .map(p => ({ p, r: porPoco.get(p.id) }))
       .sort((a, b) => ordem[status(a.r)] - ordem[status(b.r)])
@@ -1717,7 +1913,7 @@ const WebGeo = (() => {
           L.circleMarker(ll, { radius: 12, color: '#5FBE9C', weight: 2, dashArray: '3 3', fill: false, interactive: false }).addTo(camadaPocos);
         }
         const m = L.circleMarker(ll, { radius: s === 'acima' ? 8 : 6, weight: 2, color: '#fff', fillColor: COR_STATUS[s], fillOpacity: 1, className: 'pm pm-' + s })
-          .bindTooltip(esc(p.codigo), { permanent: true, direction: 'right', offset: [8, 0], className: 'rotulo-pm rotulo-' + s })
+          .bindTooltip(esc(p.codigo) + (carga.has(p.id) ? ` <span class="rotulo-carga">${carga.get(p.id).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>` : ''), { permanent: true, direction: 'right', offset: [8, 0], className: 'rotulo-pm rotulo-' + s })
           .bindPopup(() => popupPoco(p, param), { maxWidth: 320 })
           .on('popupopen', () => { st.popupAberto = p.id; })
           .on('popupclose', () => { if (st.popupAberto === p.id && !st.redesenhando) st.popupAberto = null; })
@@ -1901,6 +2097,96 @@ const WebGeo = (() => {
     for (let e = Math.ceil(Math.log10(vmin * 2)); Math.pow(10, e) <= vmax * 1.0001; e++) ticks.push(Math.pow(10, e));
     $('#leg-ticks').innerHTML = ticks.map(v => `<span style="left:${pos(v)}%">${fmt(v, 3)}</span>`).join('');
     $('#leg-limiar').textContent = calc.limiar != null ? `Limiar (${fmt(calc.limiar, 4)} ${un})` : 'Limiar: sem VI, defina no menu';
+  }
+
+  // ------------------------------------------------------------- mapa potenciométrico
+  /** Carga hidráulica (m) de cada poço na campanha: a gravada, ou cota do topo - N.A. */
+  function cargasDaCampanha(campId) {
+    const pocos = new Map(st.pocos.map(p => [p.id, p]));
+    return st.medicoes.filter(m => m.campanha_id === campId).map(m => {
+      const p = pocos.get(m.poco_id);
+      if (!p || p.latitude === null) return null;
+      const h = m.carga_hidraulica != null ? +m.carga_hidraulica
+        : (p.cota_topo != null && m.nivel_agua != null ? +p.cota_topo - +m.nivel_agua : null);
+      return h === null || !Number.isFinite(h) ? null : { p, h };
+    }).filter(Boolean);
+  }
+
+  /** Lista de redes com carga medida (em qualquer campanha). O padrão é a rede rasa "PM". */
+  function montarFiltroPot() {
+    const pocos = new Map(st.pocos.map(p => [p.id, p]));
+    const cont = {};
+    st.medicoes.forEach(m => { const p = pocos.get(m.poco_id); if (p && m.nivel_agua != null) cont[p.rede || '-'] = (cont[p.rede || '-'] || 0) + 1; });
+    const redes = Object.keys(cont).sort();
+    $('#f-pot-rede').innerHTML = redes.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('') + '<option value="*">Todas</option>';
+    if (!st.pot.redeEscolhida || (st.pot.rede !== '*' && !redes.includes(st.pot.rede))) {
+      st.pot.rede = redes.includes('PM') ? 'PM' : (redes.sort((a, b) => cont[b] - cont[a])[0] || '*');
+    }
+    $('#f-pot-rede').value = st.pot.rede;
+  }
+
+  function calcularPot() {
+    if (!st.pot.ativa || !st.campanhaId) return null;
+    const usados = cargasDaCampanha(st.campanhaId).filter(c => st.pot.rede === '*' || (c.p.rede || '-') === st.pot.rede);
+    const semCota = st.medicoes.filter(m => m.campanha_id === st.campanhaId && m.nivel_agua != null).length - cargasDaCampanha(st.campanhaId).length;
+    const r = { n: usados.length, semCota, porPoco: new Map(usados.map(c => [c.p.id, c.h])), sup: null };
+    r.sup = WGPot.superficie(usados.map(c => ({ lat: +c.p.latitude, lon: +c.p.longitude, h: c.h })), st.pot.suav);
+    if (!r.sup) return r;
+    r.passo = st.pot.intervalo || WGPot.intervaloAuto(r.sup.hmin, r.sup.hmax);
+    if ((r.sup.hmax - r.sup.hmin) / r.passo > 60) r.passo = WGPot.intervaloAuto(r.sup.hmin, r.sup.hmax); // intervalo pequeno demais
+    r.niveis = WGPot.niveis(r.sup.hmin, r.sup.hmax, r.passo);
+    r.fluxo = WGPot.fluxo(r.sup);
+    r.residuo = Math.max(...r.sup.modelo.residuos.map(Math.abs));
+    return r;
+  }
+
+  function renderPot() {
+    if (!camadaPot) return;
+    camadaPot.clearLayers();
+    $('#pot-painel').hidden = !st.pot.ativa;
+    const c = st.potCalc, ok = !!(c && c.sup);
+    $('#legenda-pot').hidden = !ok;
+    if (!st.pot.ativa) return;
+    if (!ok) {
+      $('#pot-resumo').textContent = !st.campanhaId ? 'Sem campanha.'
+        : `Só ${c ? c.n : 0} poço(s) com N.A. e cota do topo nesta campanha e rede. São precisos pelo menos 3.`;
+      return;
+    }
+    // curvas equipotenciais (uma faixa branca por baixo, para destacar do satélite)
+    const linhas = [], rotulos = [];
+    c.niveis.forEach(nv => {
+      const cs = WGPot.curva(c.sup, nv);
+      if (!cs.length) return;
+      linhas.push(...cs);
+      const maior = cs.reduce((a, b) => b.length > a.length ? b : a);
+      rotulos.push({ ll: maior[Math.floor(maior.length / 2)], nv });
+    });
+    L.polyline(linhas, { pane: 'pot', color: '#ffffff', weight: 4, opacity: .85, interactive: false }).addTo(camadaPot);
+    L.polyline(linhas, { pane: 'pot', color: '#1565A8', weight: 2, interactive: false }).addTo(camadaPot);
+    const casas = c.passo < 0.1 ? 2 : (c.passo < 1 ? (Number.isInteger(c.passo * 10) ? 1 : 2) : 1);
+    const txt = v => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
+    rotulos.forEach(r => L.marker(r.ll, { icon: L.divIcon({ className: 'rotulo-pot', html: `<span>${txt(r.nv)}</span>`, iconSize: [0, 0] }), interactive: false, keyboard: false }).addTo(camadaPot));
+    // setas de fluxo
+    if (st.pot.setas && c.fluxo.setas.length) {
+      const tr = c.fluxo.setas.flatMap(s => [[s.de, s.ate], [s.asa1, s.ate, s.asa2]]);
+      L.polyline(tr, { pane: 'pot', color: '#ffffff', weight: 5, opacity: .9, interactive: false, lineCap: 'round' }).addTo(camadaPot);
+      L.polyline(tr, { pane: 'pot', color: '#0B3558', weight: 2.5, interactive: false, lineCap: 'round' }).addTo(camadaPot);
+    }
+    $('#leg-pot-setas').hidden = !st.pot.setas;
+    // resumo
+    const f = c.fluxo, partes = [
+      `${c.n} poço(s)`,
+      `carga de ${fmt(c.sup.hmin, 2)} a ${fmt(c.sup.hmax, 2)} m`,
+      `curvas a cada ${fmt(c.passo, 2)} m`
+    ];
+    if (f.gradMedio != null) {
+      partes.push(`gradiente médio ${fmt(f.gradMedio, 3)} m/m`);
+      partes.push(f.constancia >= .5 ? `fluxo para ${f.rumo} (${Math.round(f.azimute)}°)` : `fluxo sem sentido único (médio para ${f.rumo})`);
+    }
+    if (st.pot.suav > 0) partes.push(`suavizada: até ${fmt(c.residuo, 2)} m do medido`);
+    if (c.semCota > 0) partes.push(`${c.semCota} poço(s) com N.A. ficaram de fora por falta de cota ou coordenada`);
+    $('#pot-resumo').textContent = partes.join(' · ');
+    $('#leg-pot-resumo').textContent = partes.slice(0, 5).join(' · ');
   }
 
   function renderEvolucao(param) {

@@ -13,6 +13,7 @@ Portal de monitoramento ambiental de poços (PM/PMN), irmão do **Perfil de Sond
 - **Pluma (IDW):** mostra a área acima do limiar, o centróide e a evolução entre campanhas.
 - **Popup do poço:** perfil litológico e construtivo, vindo da ficha do Perfil.
 - **Projetos:** os mesmos do Perfil; dá para criar e excluir pelo menu.
+- **Mapa potenciométrico:** curvas equipotenciais e setas de fluxo da campanha, a partir da cota do topo e do N.A.
 - **Planta em DXF:** a planta do projeto por cima do satélite, com camadas, cor e ajuste de posição por pontos.
 
 ## Como a pluma é calculada
@@ -21,5 +22,12 @@ Portal de monitoramento ambiental de poços (PM/PMN), irmão do **Perfil de Sond
 - **Poços no mesmo ponto:** poços a até 5 m um do outro (ex.: PM-26, PMN-26A, PMN-26B) contam como um ponto, com o maior valor. Para ver um nível só, use o filtro de rede.
 - **Fora da rede de poços:** o valor decai suavemente até o piso numa distância igual ao espaçamento local, fechando a pluma em curva.
 - **Desenho:** só é pintado o que passa do limiar (padrão = VI). Grade de 2 m; a linha do limiar é emendada e suavizada.
+
+## Como o potenciométrico é calculado
+- **Carga hidráulica:** cota do topo do poço menos o N.A. medido na campanha (aba Campo da planilha).
+- **Poços usados:** uma rede por vez (padrão PM, a rasa), para não misturar níveis do aquífero. Poços a até 5 m contam como um ponto, com a média.
+- **Superfície:** plano regional + spline de placa fina (thin plate spline). Passa exatamente pelos poços; a suavização opcional amortece valores destoantes.
+- **Desenho:** só dentro da rede de poços. As setas apontam para onde a carga diminui (perpendiculares às curvas).
+- **Resumo:** gradiente médio (m/m) e sentido médio do fluxo.
 
 Para instalar e publicar, veja **PASSO-A-PASSO.md**.
