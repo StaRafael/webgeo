@@ -368,8 +368,8 @@ const WGImport = (() => {
 
 /* =====================================================================
    2. PLUMA (funções puras, sem tela)
-   Interpolação IDW numa grade em metros, área acima do limiar,
-   centróide e linha do limiar (marching squares).
+   Interpolação IDW em escala log numa grade fina em metros, área acima
+   do limiar, centróide e linha do limiar (marching squares).
    ===================================================================== */
 const WGPluma = (() => {
 
@@ -387,66 +387,115 @@ const WGPluma = (() => {
   /**
    * Monta a grade comum (mesma para todas as campanhas, para dar para comparar).
    * pocos: [{lat, lon}] — todos os poços com coordenadas que têm resultado do parâmetro.
-   * A grade cobre a rede de poços + uma margem.
+   * A grade cobre a rede de poços + uma margem do tamanho do maior espaçamento entre poços.
+   * Se a área for muito grande para a célula pedida, a célula é aumentada (limite de células).
    */
-  function grade(pocos, cel) {
+  function grade(pocos, cel, maxCelulas = 80000) {
     if (!pocos.length) return null;
     const lat0 = pocos.reduce((s, p) => s + p.lat, 0) / pocos.length;
     const lon0 = pocos.reduce((s, p) => s + p.lon, 0) / pocos.length;
     const proj = projecao(lat0, lon0);
     const pts = pocos.map(p => proj.paraXY(p.lat, p.lon));
-    const margem = Math.max(2 * cel, 10);
-    const xmin = Math.floor((Math.min(...pts.map(p => p.x)) - margem) / cel) * cel;
-    const ymin = Math.floor((Math.min(...pts.map(p => p.y)) - margem) / cel) * cel;
-    const xmax = Math.ceil((Math.max(...pts.map(p => p.x)) + margem) / cel) * cel;
-    const ymax = Math.ceil((Math.max(...pts.map(p => p.y)) + margem) / cel) * cel;
-    const nx = Math.max(1, Math.round((xmax - xmin) / cel));
-    const ny = Math.max(1, Math.round((ymax - ymin) / cel));
-
-    // Máscara: só calcula onde há poço por perto (dentro da envoltória da rede
-    // ou a até "margem" metros de um poço). Fora disso o IDW só repetiria a média.
-    const env = envoltoria(pts);
-    const dentro = new Uint8Array(nx * ny);
-    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-      const x = xmin + (i + .5) * cel, y = ymin + (j + .5) * cel;
-      let ok = env.length >= 3 && dentroPoligono(x, y, env);
-      if (!ok) for (const p of pts) { if ((p.x - x) ** 2 + (p.y - y) ** 2 <= margem * margem) { ok = true; break; } }
-      dentro[j * nx + i] = ok ? 1 : 0;
-    }
-    return { proj, cel, xmin, ymin, nx, ny, dentro, margem };
+    const margem = Math.max(...espacamentos(pts)) + cel;
+    const x0 = Math.min(...pts.map(p => p.x)) - margem, x1 = Math.max(...pts.map(p => p.x)) + margem;
+    const y0 = Math.min(...pts.map(p => p.y)) - margem, y1 = Math.max(...pts.map(p => p.y)) + margem;
+    while ((x1 - x0) * (y1 - y0) / (cel * cel) > maxCelulas) cel = Math.ceil(cel * 1.5);
+    const xmin = Math.floor(x0 / cel) * cel, ymin = Math.floor(y0 / cel) * cel;
+    const nx = Math.max(1, Math.ceil((x1 - xmin) / cel)), ny = Math.max(1, Math.ceil((y1 - ymin) / cel));
+    return { proj, cel, xmin, ymin, nx, ny };
   }
 
   /**
-   * IDW: cada célula recebe a média dos N poços mais próximos (padrão 12),
-   * ponderada por 1/distância^p. Usar só os vizinhos evita que um poço muito
-   * contaminado "pinte" a área inteira com valores pequenos.
+   * Junta poços que ficam praticamente no mesmo lugar (até "raio" metros, padrão 5 m) num
+   * único ponto, valendo o MAIOR valor. É o caso dos poços multinível (PM-26, PMN-26A,
+   * PMN-26B): em planta estão no mesmo ponto, e um poço limpo colado num contaminado
+   * anularia a pluma. Usar o maior valor é o critério conservador.
+   * amostras: [{lat, lon, v}] -> devolve a lista reduzida (com n = quantos poços no ponto).
    */
-  function idw(g, amostras, p, vizinhos = 12) {
-    const v = new Float64Array(g.nx * g.ny).fill(NaN);
-    const pts = amostras.map(a => ({ ...g.proj.paraXY(a.lat, a.lon), v: a.v }));
-    if (!pts.length) return v;
-    const N = Math.min(vizinhos, pts.length);
-    const dist = new Float64Array(N), val = new Float64Array(N);
+  function agrupar(amostras, raio = 5) {
+    if (amostras.length < 2) return amostras.map(a => ({ ...a, n: 1 }));
+    const proj = projecao(amostras[0].lat, amostras[0].lon);
+    const xy = amostras.map(a => proj.paraXY(a.lat, a.lon));
+    const pai = amostras.map((_, i) => i);
+    const raiz = i => { while (pai[i] !== i) { pai[i] = pai[pai[i]]; i = pai[i]; } return i; };
+    for (let i = 0; i < xy.length; i++) for (let j = i + 1; j < xy.length; j++) {
+      if (Math.hypot(xy[i].x - xy[j].x, xy[i].y - xy[j].y) <= raio) pai[raiz(i)] = raiz(j);
+    }
+    const grupos = new Map();
+    amostras.forEach((a, i) => {
+      const k = raiz(i), g = grupos.get(k);
+      if (!g) grupos.set(k, { ...a, n: 1 });
+      else { g.n++; if (a.v > g.v) Object.assign(g, a, { n: g.n }); }
+    });
+    return [...grupos.values()];
+  }
+
+  /** Distância de cada poço ao vizinho mais próximo (m), limitada entre 5 e 150 m. */
+  function espacamentos(pts) {
+    return pts.map((a, i) => {
+      let m = Infinity;
+      pts.forEach((b, j) => { if (i !== j) m = Math.min(m, Math.hypot(a.x - b.x, a.y - b.y)); });
+      return Math.min(150, Math.max(5, Number.isFinite(m) ? m : 20));
+    });
+  }
+
+  /**
+   * IDW em ESCALA LOGARÍTMICA: interpola log10(concentração) com peso 1/distância^p,
+   * usando todos os poços (o resultado é uma superfície suave).
+   *
+   * Por que em log: concentrações variam por ordens de grandeza. Na média direta, um poço
+   * com 1000 "contamina" os vizinhos limpos e a pluma engole poços abaixo do limiar. Em log,
+   * a pluma fica em volta dos poços contaminados e termina antes de chegar aos poços limpos.
+   * Nos pontos dos poços o valor é exatamente o do poço.
+   *
+   * Fora da rede de poços (além da envoltória) não há dado: o valor decai suavemente até o
+   * piso numa distância igual ao espaçamento local entre poços, fechando a pluma em curva.
+   *
+   * amostras: [{lat, lon, v}] com v > 0 (abaixo do LQ já convertido pelo chamador).
+   * piso: valor "limpo" para onde a pluma decai fora da rede.
+   */
+  function idw(g, amostras, p = 2, piso = null) {
+    const v = new Float64Array(g.nx * g.ny);
+    if (!amostras.length) return v.fill(NaN);
+    const menor = Math.min(...amostras.map(a => a.v));
+    const lPiso = Math.log10(Math.max(1e-9, Math.min(menor, piso ?? menor)));
+    const pts = amostras.map(a => ({ ...g.proj.paraXY(a.lat, a.lon), l: Math.log10(Math.max(1e-9, a.v)) }));
+    const esp = espacamentos(pts);
+    const env = envoltoria(pts);
     for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) {
-      const k = j * g.nx + i;
-      if (!g.dentro[k]) continue;
       const x = g.xmin + (i + .5) * g.cel, y = g.ymin + (j + .5) * g.cel;
-      let n = 0, exato = null;
-      for (const a of pts) {                       // guarda os N mais próximos (inserção ordenada)
-        const d2 = (a.x - x) ** 2 + (a.y - y) ** 2;
-        if (d2 < 1e-6) { exato = a.v; break; }
-        if (n < N || d2 < dist[n - 1]) {
-          let q = n < N ? n++ : n - 1;
-          while (q > 0 && dist[q - 1] > d2) { dist[q] = dist[q - 1]; val[q] = val[q - 1]; q--; }
-          dist[q] = d2; val[q] = a.v;
+      let num = 0, den = 0, numR = 0, exato = null;
+      for (let q = 0; q < pts.length; q++) {
+        const a = pts[q], d2 = (a.x - x) ** 2 + (a.y - y) ** 2;
+        if (d2 < 1e-6) { exato = a.l; break; }
+        const w = p === 2 ? 1 / d2 : 1 / Math.pow(d2, p / 2);
+        num += w * a.l; den += w; numR += w * esp[q];
+      }
+      let l = exato !== null ? exato : num / den;
+      if (exato === null) {
+        const fora = distanciaFora(x, y, env);
+        if (fora > 0) {
+          const t = Math.min(1, fora / (numR / den));       // 0 na borda da rede, 1 a um espaçamento de distância
+          l = lPiso + (l - lPiso) * (1 - t * t * (3 - 2 * t)); // decaimento suave (smoothstep)
         }
       }
-      if (exato !== null) { v[k] = exato; continue; }
-      let num = 0, den = 0;
-      for (let q = 0; q < n; q++) { const w = 1 / Math.pow(dist[q], p / 2); num += w * val[q]; den += w; }
-      v[k] = num / den;
+      v[j * g.nx + i] = Math.pow(10, l);
     }
     return v;
+  }
+
+  /** Distância (m) de um ponto até a envoltória da rede; 0 se estiver dentro. */
+  function distanciaFora(x, y, env) {
+    if (env.length >= 3 && dentroPoligono(x, y, env)) return 0;
+    if (env.length === 1) return Math.hypot(x - env[0].x, y - env[0].y);
+    let m = Infinity;
+    for (let i = 0; i < env.length; i++) {
+      const a = env[i], b = env[(i + 1) % env.length];
+      const dx = b.x - a.x, dy = b.y - a.y, c = dx * dx + dy * dy;
+      const t = c ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / c)) : 0;
+      m = Math.min(m, Math.hypot(x - a.x - t * dx, y - a.y - t * dy));
+    }
+    return m;
   }
 
   /** Área (m²) e centróide (lat/lon) das células com valor >= limiar. */
@@ -469,7 +518,8 @@ const WGPluma = (() => {
 
   /**
    * Linha do limiar (marching squares sobre os centros das células).
-   * Devolve segmentos [[lat,lon],[lat,lon]] para desenhar no mapa.
+   * Os pedaços são emendados em curvas contínuas e suavizados (Chaikin), para o
+   * traçado sair liso. Devolve uma lista de curvas, cada uma [[lat,lon], ...].
    */
   function isolinha(g, v, limiar) {
     const segs = [];
@@ -480,7 +530,9 @@ const WGPluma = (() => {
     };
     const ponto = (i, j) => ({ x: g.xmin + (i + .5) * g.cel, y: g.ymin + (j + .5) * g.cel });
     const interp = (p1, v1, p2, v2) => {
-      const t = (!Number.isFinite(v1) || !Number.isFinite(v2)) ? .5 : (limiar - v1) / (v2 - v1);
+      // interpola em log (a superfície é suave em log); fora da grade, meio do caminho
+      const t = (!Number.isFinite(v1) || !Number.isFinite(v2)) ? .5
+        : (v1 > 0 && v2 > 0 && limiar > 0) ? Math.log(limiar / v1) / Math.log(v2 / v1) : (limiar - v1) / (v2 - v1);
       return { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y) };
     };
     for (let j = -1; j < g.ny; j++) for (let i = -1; i < g.nx; i++) {
@@ -494,7 +546,51 @@ const WGPluma = (() => {
       if (cruzam.length === 2) segs.push([e(cruzam[0]), e(cruzam[1])]);
       else if (cruzam.length === 4) { segs.push([e(0), e(1)]); segs.push([e(2), e(3)]); }
     }
-    return segs.map(s => s.map(p => { const ll = g.proj.paraLatLon(p.x, p.y); return [ll.lat, ll.lon]; }));
+    return emendar(segs).map(c => suavizar(c, 2).map(p => { const ll = g.proj.paraLatLon(p.x, p.y); return [ll.lat, ll.lon]; }));
+  }
+
+  /** Emenda segmentos soltos [[a,b],...] em curvas contínuas (pontas iguais se juntam). */
+  function emendar(segs) {
+    const chave = p => Math.round(p.x * 1000) + ',' + Math.round(p.y * 1000);
+    const pontas = new Map(); // chave do ponto -> [{s, ponta}]
+    segs.forEach((sg, s) => sg.forEach((p, ponta) => {
+      const k = chave(p); if (!pontas.has(k)) pontas.set(k, []); pontas.get(k).push({ s, ponta });
+    }));
+    const usado = new Uint8Array(segs.length), curvas = [];
+    const seguir = (s, ponta) => { // anda a partir da ponta de um segmento, devolve os pontos seguintes
+      const pts = [];
+      for (;;) {
+        const p = segs[s][ponta];
+        const prox = (pontas.get(chave(p)) || []).find(o => o.s !== s && !usado[o.s]);
+        if (!prox) return pts;
+        usado[prox.s] = 1; s = prox.s; ponta = 1 - prox.ponta;
+        pts.push(segs[s][ponta]);
+      }
+    };
+    for (let s = 0; s < segs.length; s++) {
+      if (usado[s]) continue;
+      usado[s] = 1;
+      const frente = seguir(s, 1), tras = seguir(s, 0);
+      curvas.push([...tras.reverse(), segs[s][0], segs[s][1], ...frente]);
+    }
+    return curvas;
+  }
+
+  /** Suavização de Chaikin (corta os cantos); mantém fechada a curva que já era fechada. */
+  function suavizar(c, vezes) {
+    const fechada = c.length > 3 && Math.hypot(c[0].x - c[c.length - 1].x, c[0].y - c[c.length - 1].y) < 1e-3;
+    let pts = fechada ? c.slice(0, -1) : c;
+    for (let k = 0; k < vezes && pts.length > 2; k++) {
+      const n = pts.length, novo = [];
+      if (!fechada) novo.push(pts[0]);
+      for (let i = 0; i < (fechada ? n : n - 1); i++) {
+        const a = pts[i], b = pts[(i + 1) % n];
+        novo.push({ x: .75 * a.x + .25 * b.x, y: .75 * a.y + .25 * b.y }, { x: .25 * a.x + .75 * b.x, y: .25 * a.y + .75 * b.y });
+      }
+      if (!fechada) novo.push(pts[n - 1]);
+      pts = novo;
+    }
+    return fechada ? [...pts, pts[0]] : pts;
   }
 
   // ------------------------------------------------------------ geometria auxiliar
@@ -522,12 +618,12 @@ const WGPluma = (() => {
   /** Cor de um valor numa escala log10 entre vmin e vmax (vmin > 0). */
   function cor(valor, vmin, vmax) {
     const t = Math.max(0, Math.min(1, (Math.log10(valor) - Math.log10(vmin)) / (Math.log10(vmax) - Math.log10(vmin) || 1)));
-    const f = t * (RAMPA.length - 1), k = Math.min(RAMPA.length - 2, Math.floor(f)), r = f - k;
+    const f = (0.3 + 0.7 * t) * (RAMPA.length - 1), k = Math.min(RAMPA.length - 2, Math.floor(f)), r = f - k;
     const a = hexRgb(RAMPA[k]), b = hexRgb(RAMPA[k + 1]);
     return a.map((x, n) => Math.round(x + (b[n] - x) * r));
   }
 
-  return { grade, idw, areaECentroide, distancia, isolinha, cor, RAMPA, projecao };
+  return { grade, idw, agrupar, areaECentroide, distancia, isolinha, cor, RAMPA, projecao };
 })();
 
 if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma };
@@ -555,7 +651,7 @@ const WebGeo = (() => {
     parametroId: null, campanhaId: null, redesOcultas: new Set(), importacao: null,
     pontos: [], enquadrarPendente: false,
     perfis: new Map(),            // poco_id -> intervalos da aba Litologia (wg_perfil_poco)
-    pluma: { ativa: true, limiar: null, p: 2, cel: 10 }, // limiar null = usa o VI do parâmetro
+    pluma: { ativa: true, limiar: null, p: 2, cel: 2 }, // limiar null = usa o VI do parâmetro
     calc: null                    // resultado da última interpolação
   };
 
@@ -1029,8 +1125,11 @@ const WebGeo = (() => {
 
   /**
    * Interpola o parâmetro selecionado em TODAS as campanhas, na mesma grade,
-   * para dar para comparar área e centróide entre elas.
-   * Resultado abaixo do LQ entra como 0. Respeita o filtro de rede.
+   * para dar para comparar área e centróide entre elas. Respeita o filtro de rede.
+   * A interpolação é em escala log, então todo poço precisa de um valor > 0:
+   *   - quantificado: o próprio valor
+   *   - abaixo do LQ: metade do LQ (ou o piso, se o laudo não trouxe o LQ)
+   * piso = 1/10 do valor orientador (sem VI: 1/10 do limiar ou do menor valor medido).
    */
   function calcularPlumas(param, limiar) {
     if (!param) return null;
@@ -1040,6 +1139,10 @@ const WebGeo = (() => {
     if (!res.length) return null;
     const ids = [...new Set(res.map(r => r.poco_id))];
     const g = WGPluma.grade(ids.map(id => ({ lat: +pocosCoord.get(id).latitude, lon: +pocosCoord.get(id).longitude })), st.pluma.cel);
+    const quantTodos = res.filter(r => !r.menor_que_lq && +r.valor > 0).map(r => +r.valor);
+    const base = param.valor_orientador != null ? +param.valor_orientador : (limiar ?? (quantTodos.length ? Math.min(...quantTodos) : 1));
+    const piso = base / 10;
+    const valorInterp = r => r.menor_que_lq ? (r.lq != null && +r.lq > 0 ? +r.lq / 2 : piso) : (+r.valor > 0 ? +r.valor : piso);
     let maxGlobal = 0;
     const porCamp = st.campanhas.map(c => {
       const rc = res.filter(r => r.campanha_id === c.id);
@@ -1047,16 +1150,20 @@ const WebGeo = (() => {
       const max = quant.length ? Math.max(...quant) : null;
       if (max) maxGlobal = Math.max(maxGlobal, max);
       const item = { campanha: c, n: rc.length, max, nAcima: rc.filter(r => r.acima_vi).length, v: null, area: null, centroide: null };
-      if (rc.length >= 3) {
-        const p = pocosCoord;
-        item.v = WGPluma.idw(g, rc.map(r => ({ lat: +p.get(r.poco_id).latitude, lon: +p.get(r.poco_id).longitude, v: +r.valor_calculo || 0 })), st.pluma.p);
+      const p = pocosCoord;
+      // poços no mesmo ponto (até 5 m: PM-26, PMN-26A, PMN-26B...) contam como um, com o maior valor
+      const pontos = WGPluma.agrupar(rc.map(r => ({ lat: +p.get(r.poco_id).latitude, lon: +p.get(r.poco_id).longitude, v: valorInterp(r) })), 5);
+      item.pontos = pontos.length;
+      if (pontos.length >= 3) {
+        item.v = WGPluma.idw(g, pontos, st.pluma.p, piso);
         if (limiar != null) Object.assign(item, WGPluma.areaECentroide(g, item.v, limiar));
       }
       return item;
     });
-    const vmax = Math.pow(10, Math.max(1, Math.ceil(Math.log10(maxGlobal || 10))));
-    // cor só a partir de 1/10 do limiar (ou 3 ordens abaixo do máximo, sem limiar)
-    const vmin = Math.min(vmax / 10, limiar != null ? limiar / 10 : vmax / 1e3);
+    // a pluma é pintada só onde o valor interpolado passa do limiar (sem limiar: 3 ordens abaixo do máximo)
+    let vmax = Math.pow(10, Math.max(1, Math.ceil(Math.log10(maxGlobal || 10))));
+    const vmin = limiar != null ? limiar : vmax / 1e3;
+    if (vmax <= vmin * 1.5) vmax = vmin * 10;
     return { g, limiar, porCamp, vmax, vmin };
   }
 
@@ -1073,17 +1180,29 @@ const WebGeo = (() => {
     if (!mostrar) return;
     const { g, vmin, vmax } = calc;
 
-    // 1) imagem da pluma: um pixel por célula, o navegador suaviza ao ampliar
+    // 1) imagem da pluma: cada célula vira k x k pixels, interpolando (em log) entre as células
+    //    vizinhas, para a borda sair lisa e coincidir com a linha do limiar
+    const k = g.nx * g.ny * 16 <= 1500000 ? 4 : (g.nx * g.ny * 4 <= 1500000 ? 2 : 1);
+    const W = g.nx * k, H = g.ny * k;
+    const lg = new Float64Array(g.nx * g.ny);
+    for (let q = 0; q < lg.length; q++) lg[q] = Math.log10(Math.max(1e-12, sel.v[q]));
+    const lmin = Math.log10(vmin);
     const cv = document.createElement('canvas');
-    cv.width = g.nx; cv.height = g.ny;
+    cv.width = W; cv.height = H;
     const ctx = cv.getContext('2d');
-    const img = ctx.createImageData(g.nx, g.ny);
-    for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) {
-      const val = sel.v[j * g.nx + i];
-      const o = ((g.ny - 1 - j) * g.nx + i) * 4; // linha 0 da imagem = norte
-      if (!(val >= vmin)) { img.data[o + 3] = 0; continue; }
-      const [r, gg, b] = WGPluma.cor(val, vmin, vmax);
-      img.data[o] = r; img.data[o + 1] = gg; img.data[o + 2] = b; img.data[o + 3] = 185;
+    const img = ctx.createImageData(W, H);
+    for (let py = 0; py < H; py++) {
+      const gy = Math.min(g.ny - 1, Math.max(0, (py + .5) / k - .5)), j0 = Math.min(g.ny - 2, Math.floor(gy)), fy = g.ny > 1 ? gy - j0 : 0;
+      for (let px = 0; px < W; px++) {
+        const gx = Math.min(g.nx - 1, Math.max(0, (px + .5) / k - .5)), i0 = Math.min(g.nx - 2, Math.floor(gx)), fx = g.nx > 1 ? gx - i0 : 0;
+        const a = lg[Math.max(0, j0) * g.nx + Math.max(0, i0)], b = lg[Math.max(0, j0) * g.nx + Math.min(g.nx - 1, i0 + 1)];
+        const c = lg[Math.min(g.ny - 1, j0 + 1) * g.nx + Math.max(0, i0)], d = lg[Math.min(g.ny - 1, j0 + 1) * g.nx + Math.min(g.nx - 1, i0 + 1)];
+        const l = (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+        if (!(l >= lmin)) continue; // transparente
+        const o = ((H - 1 - py) * W + px) * 4; // linha 0 da imagem = norte
+        const [r, gg, bb] = WGPluma.cor(Math.pow(10, l), vmin, vmax);
+        img.data[o] = r; img.data[o + 1] = gg; img.data[o + 2] = bb; img.data[o + 3] = 190;
+      }
     }
     ctx.putImageData(img, 0, 0);
     const sw = g.proj.paraLatLon(g.xmin, g.ymin), ne = g.proj.paraLatLon(g.xmin + g.nx * g.cel, g.ymin + g.ny * g.cel);
@@ -1114,10 +1233,10 @@ const WebGeo = (() => {
     // legenda
     const un = param?.unidade || 'µg/L';
     $('#leg-tit').textContent = `Pluma (${un})`;
-    $('#leg-gradiente').style.background = `linear-gradient(to right, ${WGPluma.RAMPA.join(', ')})`;
+    $('#leg-gradiente').style.background = `linear-gradient(to right, ${WGPluma.RAMPA.slice(2).join(', ')})`;
     const pos = v => 100 * Math.log10(v / vmin) / Math.log10(vmax / vmin);
-    const ticks = [];
-    for (let e = Math.ceil(Math.log10(vmin) - 1e-9); Math.pow(10, e) <= vmax * 1.0001; e++) ticks.push(Math.pow(10, e));
+    const ticks = [vmin];
+    for (let e = Math.ceil(Math.log10(vmin * 2)); Math.pow(10, e) <= vmax * 1.0001; e++) ticks.push(Math.pow(10, e));
     $('#leg-ticks').innerHTML = ticks.map(v => `<span style="left:${pos(v)}%">${fmt(v, 3)}</span>`).join('');
     $('#leg-limiar').textContent = calc.limiar != null ? `Limiar (${fmt(calc.limiar, 4)} ${un})` : 'Limiar: sem VI, defina no menu';
   }
@@ -1128,7 +1247,7 @@ const WebGeo = (() => {
     const fa = a => a == null ? '—' : fmt(Math.round(a), 0);
     const semLimiar = !calc || calc.limiar == null;
     $('#pluma-hint').textContent = calc
-      ? `IDW p = ${st.pluma.p} (12 poços mais próximos) · célula ${st.pluma.cel} m · limiar ${semLimiar ? '—' : fmt(calc.limiar, 4) + ' ' + un} · calculada dentro da rede de poços`
+      ? `IDW em escala log, p = ${st.pluma.p} · célula ${calc.g.cel} m · limiar ${semLimiar ? '—' : fmt(calc.limiar, 4) + ' ' + un} · poços a até 5 m contam como um ponto (maior valor)`
       : 'sem resultados deste parâmetro';
 
     $('#kpi-a1-lab').textContent = ini ? `Área na ${ini.campanha.codigo}` : 'Área na 1ª campanha';
@@ -1136,8 +1255,8 @@ const WebGeo = (() => {
     $('#kpi-a1').textContent = fa(ini?.area);
     $('#kpi-a2').textContent = fa(sel?.area);
     const sub = semLimiar ? 'defina o limiar' : `acima de ${fmt(calc.limiar, 4)} ${un}`;
-    $('#kpi-a1-sub').textContent = ini ? sub : 'precisa de 3+ poços com resultado';
-    $('#kpi-a2-sub').textContent = sel?.v ? sub : 'precisa de 3+ poços com resultado';
+    $('#kpi-a1-sub').textContent = ini ? sub : 'precisa de 3+ pontos com resultado';
+    $('#kpi-a2-sub').textContent = sel?.v ? sub : 'precisa de 3+ pontos com resultado';
 
     const comparar = ini && sel && ini !== sel && ini.area != null && sel.area != null;
     if (comparar && ini.area > 0) {
