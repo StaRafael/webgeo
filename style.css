@@ -422,6 +422,24 @@
   }
   .pino-ajuste.de{background:#ffd60a;}
 
+  /* ============ SEÇÃO GEOLÓGICA ============ */
+  .rail-secao{margin-top:14px;}
+  .pino-secao{
+    width:22px;height:22px;border-radius:50%;background:#FFD60A;border:2px solid #172621;color:#172621;
+    font:700 11px/18px var(--font-mono);text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.5);
+  }
+  .secao-acoes{display:flex;justify-content:flex-end;padding:10px 18px 0;}
+  .secao-desenho{overflow-x:auto;padding:6px 18px 4px;color:var(--ink);min-width:0;}
+  /* o corte é um desenho técnico: folha branca com traço escuro, igual no modo claro e no escuro */
+  .secao-desenho svg{display:block;max-width:none;background:#ffffff;color:#172621;border:1px solid var(--line);border-radius:4px;}
+  .secao-coluna{cursor:help;}
+  .secao-vazio{margin:18px 0;color:var(--ink-soft);font-size:13px;}
+  .leg-lito{display:inline-block;width:14px;height:14px;border-radius:2px;border:1px solid var(--line);}
+  .leg-terreno{display:inline-block;width:22px;height:0;border-top:2px solid #7A5A2E;}
+  .leg-tubo{display:inline-block;width:8px;height:14px;background:#F3F5F4;border:1px solid #56655D;}
+  .leg-tubo.leg-filtro{background:#DDEAF6;border-color:#2B7BBA;}
+  .leg-semlito{display:inline-block;width:12px;height:14px;border:1px dashed var(--ink-soft);}
+
   /* ============ EXCLUIR PROJETO ============ */
   .rail-projeto-cab{display:flex;align-items:center;justify-content:space-between;gap:8px;}
   .btn-excluir-projeto{

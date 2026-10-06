@@ -109,6 +109,21 @@ e-mail (confirmação de conta, troca de senha).
 
 ---
 
+## Seção geológica
+
+No menu, em **Seção geológica**, clique em **Traçar seção A–A'** e marque no mapa o início e o fim da linha (o clique gruda no poço mais próximo). Pode marcar pontos no meio para a linha fazer curva. Clique em **Concluir** (ou dê dois cliques rápidos no último ponto). Não precisa de nada novo no banco.
+
+- **Quem entra:** poços e sondagens a até a distância da **Faixa** (5 a 40 m) para cada lado da linha. Eles ganham um anel amarelo no mapa.
+- **Litologia:** vem da ficha do Perfil de Sondagem com o mesmo "Poço nº" (ou da aba *Litologia* da planilha). Poço sem litologia aparece só com o nome e o nível d'água.
+- **Altura:** usa a **Cota topo (m)** do poço. Sem cota, usa a do poço mais próximo e marca o nome com `*`.
+- **Nível d'água:** o N.A. da campanha selecionada (ou o da ficha), com uma linha por rede (PM, PMN).
+- **Ligar camadas iguais:** liga as camadas de mesmo nome entre sondagens vizinhas. É automático e precisa de conferência; dá para desligar.
+- **Exagero vertical:** automático, ou de 1x a 20x.
+- **Baixar imagem (SVG):** salva o desenho em fundo branco.
+- A linha fica guardada no navegador de quem traçou, por projeto.
+
+---
+
 ## Planta em DXF
 
 No menu, em **Planta (DXF)**, clique em **Inserir planta (DXF)** e escolha o arquivo. A planta fica salva no projeto, para todos da empresa.

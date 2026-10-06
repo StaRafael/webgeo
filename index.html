@@ -151,6 +151,30 @@
       </div>
     </div>
 
+    <div class="rail-filtros rail-secao">
+      <div class="rail-projeto-cab"><span class="rail-projeto-label">Seção geológica</span></div>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-secao-tracar">Traçar seção A–A'</button>
+      <div id="secao-painel" class="pot-painel" hidden>
+        <div class="rail-duplo">
+          <div class="rail-projeto">
+            <label class="rail-projeto-label" for="f-secao-faixa">Faixa</label>
+            <select id="f-secao-faixa" class="rail-projeto-select">
+              <option value="5">5 m</option><option value="10" selected>10 m</option><option value="20">20 m</option><option value="40">40 m</option>
+            </select>
+          </div>
+          <div class="rail-projeto">
+            <label class="rail-projeto-label" for="f-secao-exag">Exagero vert.</label>
+            <select id="f-secao-exag" class="rail-projeto-select">
+              <option value="0" selected>Automático</option><option value="1">1x</option><option value="2">2x</option>
+              <option value="5">5x</option><option value="10">10x</option><option value="20">20x</option>
+            </select>
+          </div>
+        </div>
+        <label class="chk"><input type="checkbox" id="f-secao-ligar" checked><span class="box"></span>Ligar camadas iguais</label>
+        <div class="planta-acoes"><button type="button" class="btn-mini btn-mini-perigo" id="btn-secao-apagar">Apagar seção</button></div>
+      </div>
+    </div>
+
     <div class="rail-filtros rail-planta">
       <div class="rail-projeto-cab"><span class="rail-projeto-label">Planta (DXF)</span></div>
       <button type="button" class="btn btn-ghost btn-sm" id="btn-planta-inserir">Inserir planta (DXF)</button>
@@ -215,6 +239,14 @@
               <button type="button" class="btn btn-ghost btn-sm2" id="ajuste-cancelar">Cancelar</button>
             </div>
           </div>
+          <div id="secao-barra" class="ajuste-barra" hidden>
+            <div class="ajuste-texto"><b id="secao-passo">Traçar seção geológica</b><span id="secao-dica"></span></div>
+            <div class="ajuste-botoes">
+              <button type="button" class="btn btn-primary btn-sm2" id="secao-concluir" disabled>Concluir</button>
+              <button type="button" class="btn btn-ghost btn-sm2" id="secao-desfazer" disabled>Desfazer ponto</button>
+              <button type="button" class="btn btn-ghost btn-sm2" id="secao-cancelar">Cancelar</button>
+            </div>
+          </div>
           <div id="mapa"></div>
           <div class="legenda">
             <span><i class="bola st-acima"></i>Acima do VI</span>
@@ -239,6 +271,16 @@
             <span id="leg-pot-resumo"></span>
           </div>
           <div class="legenda-nota"><span>Aproxime o mapa para ver o nome de todos os poços.</span> <span id="mapa-nota"></span></div>
+        </div>
+      </section>
+
+      <section class="section" id="sec-secao" hidden>
+        <div class="section-head"><span class="section-num">A</span><h2>Seção geológica A–A'</h2><span class="hint" id="secao-hint"></span></div>
+        <div class="section-body">
+          <div class="secao-acoes"><button type="button" class="btn btn-ghost btn-sm2" id="btn-secao-baixar">Baixar imagem (SVG)</button></div>
+          <div id="secao-desenho" class="secao-desenho"></div>
+          <div class="legenda" id="secao-legenda"></div>
+          <div class="legenda-nota" id="secao-nota"></div>
         </div>
       </section>
 

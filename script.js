@@ -1125,7 +1125,112 @@ const WGPot = (() => {
   return { ajustar, agrupar, superficie, intervaloAuto, niveis, curva, fluxo };
 })();
 
-if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf, WGPot };
+/* =====================================================================
+   3c. SEÇÃO GEOLÓGICA (funções puras, sem tela)
+   Corte vertical ao longo de uma linha A–A' traçada no mapa: posição de
+   cada sondagem na linha, ligação das camadas iguais e escalas.
+   ===================================================================== */
+const WGSecao = (() => {
+
+  /** Comprimento (m) de uma linha quebrada [{x,y}, ...]. */
+  function comprimento(linha) {
+    let s = 0;
+    for (let i = 1; i < linha.length; i++) s += Math.hypot(linha[i].x - linha[i - 1].x, linha[i].y - linha[i - 1].y);
+    return s;
+  }
+
+  /** Distância de cada vértice da linha até o início (m). */
+  function vertices(linha) {
+    const d = [0];
+    for (let i = 1; i < linha.length; i++) d.push(d[i - 1] + Math.hypot(linha[i].x - linha[i - 1].x, linha[i].y - linha[i - 1].y));
+    return d;
+  }
+
+  /**
+   * Projeta um ponto na linha: devolve a distância ao longo da linha (dist) e o
+   * afastamento perpendicular (afast), no trecho mais próximo.
+   */
+  function projetar(linha, p) {
+    let melhor = null, antes = 0;
+    for (let i = 1; i < linha.length; i++) {
+      const a = linha[i - 1], b = linha[i], dx = b.x - a.x, dy = b.y - a.y, c = dx * dx + dy * dy;
+      const t = c ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / c)) : 0;
+      const afast = Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+      if (!melhor || afast < melhor.afast) melhor = { dist: antes + t * Math.sqrt(c), afast };
+      antes += Math.sqrt(c);
+    }
+    return melhor;
+  }
+
+  /** "Argila Siltosa " e "argila siltosa" são a mesma camada. */
+  function chaveLit(t) {
+    return String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  /**
+   * Liga as camadas iguais de duas sondagens vizinhas, de cima para baixo e sem cruzar
+   * (maior sequência comum de nomes de camada). Devolve pares [índice em A, índice em B].
+   */
+  function correlacionar(a, b) {
+    const ka = a.map(c => chaveLit(c.lit)), kb = b.map(c => chaveLit(c.lit)), n = ka.length, m = kb.length;
+    const t = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+      t[i][j] = (ka[i] && ka[i] === kb[j]) ? t[i + 1][j + 1] + 1 : Math.max(t[i + 1][j], t[i][j + 1]);
+    const pares = [];
+    for (let i = 0, j = 0; i < n && j < m;) {
+      if (ka[i] && ka[i] === kb[j]) { pares.push([i, j]); i++; j++; }
+      else if (t[i + 1][j] >= t[i][j + 1]) i++; else j++;
+    }
+    return pares;
+  }
+
+  /**
+   * Afasta posições que ficariam uma em cima da outra no desenho (poços colados).
+   * xs em ordem crescente; devolve novas posições com pelo menos `minimo` entre elas, dentro de [x0, x1].
+   */
+  function espalhar(xs, minimo, x0, x1) {
+    const n = xs.length; if (!n) return [];
+    if ((n - 1) * minimo > x1 - x0) minimo = (x1 - x0) / Math.max(1, n - 1);
+    const r = xs.slice();
+    // blocos de vizinhos apertados são centrados em torno da média das posições reais
+    let i = 0;
+    const blocos = [];
+    while (i < n) { blocos.push({ ini: i, fim: i, soma: xs[i] }); i++; }
+    const pos = b => { const k = b.fim - b.ini + 1; return b.soma / k - (k - 1) * minimo / 2; };
+    for (let k = 1; k < blocos.length; k++) {
+      const a = blocos[k - 1], b = blocos[k];
+      if (pos(b) < pos(a) + (a.fim - a.ini + 1) * minimo - 1e-9) {
+        a.fim = b.fim; a.soma += b.soma; blocos.splice(k, 1); k = Math.max(0, k - 2);
+      }
+    }
+    blocos.forEach(b => {
+      const k = b.fim - b.ini + 1;
+      const ini = Math.max(x0, Math.min(x1 - (k - 1) * minimo, pos(b)));
+      for (let q = 0; q < k; q++) r[b.ini + q] = ini + q * minimo;
+    });
+    for (let q = 1; q < n; q++) if (r[q] < r[q - 1] + minimo - 1e-6) r[q] = r[q - 1] + minimo;   // blocos empurrados pela borda
+    for (let q = n - 1; q >= 0; q--) { const lim = q === n - 1 ? x1 : r[q + 1] - minimo; if (r[q] > lim) r[q] = lim; }
+    return r;
+  }
+
+  /** Passo "redondo" para marcar um eixo de tamanho `faixa` com cerca de `alvo` marcas. */
+  function passoBonito(faixa, alvo = 6) {
+    if (!(faixa > 0)) return 1;
+    const bruto = faixa / alvo, pot = Math.pow(10, Math.floor(Math.log10(bruto)));
+    return [1, 2, 2.5, 5, 10].map(m => m * pot).find(p => p >= bruto - 1e-12);
+  }
+
+  /** Exagero vertical "redondo" para o desenho ficar com a altura desejada. */
+  function exageroAuto(larguraPx, comprimentoM, alturaPx, desnivelM) {
+    if (!(comprimentoM > 0) || !(desnivelM > 0)) return 1;
+    const ideal = (alturaPx / desnivelM) / (larguraPx / comprimentoM);
+    return [1, 2, 3, 5, 10, 15, 20, 30, 50, 100].reduce((a, b) => Math.abs(Math.log(b / ideal)) < Math.abs(Math.log(a / ideal)) ? b : a);
+  }
+
+  return { comprimento, vertices, projetar, chaveLit, correlacionar, espalhar, passoBonito, exageroAuto };
+})();
+
+if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf, WGPot, WGSecao };
 
 /* =====================================================================
    4. APLICAÇÃO (tela)
@@ -1138,7 +1243,7 @@ if (typeof window !== 'undefined' && window.document) {
 
 const WebGeo = (() => {
   let sb;                       // cliente Supabase
-  let mapa, camadaPocos, camadaRotulos, camadaPluma, camadaPot, camadaPlanta, camadaAjuste, rendPlanta;
+  let mapa, camadaSecao, camadaPocos, camadaRotulos, camadaPluma, camadaPot, camadaPlanta, camadaAjuste, rendPlanta;
   let rotulosDoMapa = [];        // nomes a escrever no mapa: {ll, html, texto, status}
   let graficos = {};
   let usuarioCarregado = null;  // evita recarregar a tela quando o Supabase só renova o token
@@ -1153,6 +1258,8 @@ const WebGeo = (() => {
     calc: null,                   // resultado da última interpolação
     pot: { ativa: false, rede: null, intervalo: 0, suav: 0, setas: true }, // rede null = escolhe sozinho; intervalo 0 = automático
     potCalc: null,                // superfície potenciométrica da campanha selecionada
+    secao: { tracando: null, linha: null, faixa: 10, exag: 0, ligar: true }, // seção geológica A–A' (exag 0 = automático)
+    secaoCalc: null,              // sondagens que entram no corte
     planta: null, plantaLL: null, plantaErro: null, dxfNovo: null, ajuste: null // planta em DXF do projeto
   };
 
@@ -1296,6 +1403,15 @@ const WebGeo = (() => {
     $('#f-pot-int').addEventListener('change', e => { st.pot.intervalo = +e.target.value; render(); });
     $('#f-pot-suav').addEventListener('change', e => { st.pot.suav = +e.target.value; render(); });
     $('#f-pot-setas').addEventListener('change', e => { st.pot.setas = e.target.checked; render(); });
+    $('#btn-secao-tracar').addEventListener('click', iniciarSecao);
+    $('#btn-secao-apagar').addEventListener('click', apagarSecao);
+    $('#btn-secao-baixar').addEventListener('click', baixarSecao);
+    $('#secao-concluir').addEventListener('click', concluirSecao);
+    $('#secao-desfazer').addEventListener('click', desfazerSecao);
+    $('#secao-cancelar').addEventListener('click', cancelarSecao);
+    $('#f-secao-faixa').addEventListener('change', e => { st.secao.faixa = +e.target.value; render(); });
+    $('#f-secao-exag').addEventListener('change', e => { st.secao.exag = +e.target.value; render(); });
+    $('#f-secao-ligar').addEventListener('change', e => { st.secao.ligar = e.target.checked; render(); });
     $('#f-limiar').addEventListener('change', e => {
       const v = WGImport.numero(e.target.value);
       st.pluma.limiar = v !== null && v > 0 ? v : null; // vazio = volta para o VI
@@ -1321,6 +1437,7 @@ const WebGeo = (() => {
       mapa.invalidateSize();
       if (st.enquadrarPendente) enquadrarMapa();
       atualizarRotulos();
+      if (st.secao.linha) renderSecao();   // o desenho usa a largura da tela
     }, 0);
   }
 
@@ -1360,6 +1477,7 @@ const WebGeo = (() => {
       if (!st.projetoId) {
         st.campanhas = []; st.pocos = []; st.resultados = []; st.medicoes = []; st.soltas = [];
         await carregarPlanta();
+        carregarSecao();
         render(); trocarView('importar'); return;
       }
       await carregarProjeto();
@@ -1552,6 +1670,7 @@ const WebGeo = (() => {
   // 1 ponto desloca a planta; 2 pontos deslocam e giram (a escala do desenho é mantida).
   function iniciarAjuste() {
     if (!st.planta) return;
+    cancelarSecao();
     cfgPlanta.setMostrar(true); $('#f-planta').checked = true;
     trocarView('visao');
     st.ajuste = { original: st.planta.dados.afim.slice(), pares: [], de: null };
@@ -1714,6 +1833,7 @@ const WebGeo = (() => {
       }
       juntarFichas(pocos, fichas);
       await carregarPlanta();
+        carregarSecao();
 
       // Parâmetros com resultado neste projeto; começa pelo que tem mais poços acima do VI
       const comDados = new Set(resultados.map(r => r.parametro_id));
@@ -1839,6 +1959,7 @@ const WebGeo = (() => {
     renderMapa(param, enquadrar);
     renderPluma(param);
     renderPot();
+    renderSecao();
     renderPlanta();
     renderEvolucao(param);
     renderTabela(param);
@@ -1875,13 +1996,17 @@ const WebGeo = (() => {
     mapa.createPane('planta').style.zIndex = 360;      // planta DXF: acima da pluma, abaixo da linha do limiar
     mapa.createPane('plumaLinha').style.zIndex = 380;
     mapa.createPane('pot').style.zIndex = 385;         // curvas equipotenciais e setas de fluxo
+    mapa.createPane('secao').style.zIndex = 390;       // linha da seção geológica
     rendPlanta = L.canvas({ pane: 'planta', padding: .5 }); // canvas: aguenta milhares de linhas sem pesar
     camadaPlanta = L.layerGroup().addTo(mapa);
     camadaAjuste = L.layerGroup().addTo(mapa);
     mapa.on('click', cliqueAjuste);
-    mapa.on('popupopen', () => { if (st.ajuste) setTimeout(() => mapa.closePopup(), 0); }); // ajustando a planta: sem popups
+    mapa.on('popupopen', () => { if (st.ajuste || st.secao.tracando) setTimeout(() => mapa.closePopup(), 0); }); // ajustando a planta ou traçando a seção: sem popups
+    mapa.on('click', cliqueSecao);
+    mapa.on('dblclick', () => { if (st.secao.tracando) concluirSecao(); });
     camadaPluma = L.layerGroup().addTo(mapa);
     camadaPot = L.layerGroup().addTo(mapa);
+    camadaSecao = L.layerGroup().addTo(mapa);
     camadaPocos = L.layerGroup().addTo(mapa);
     camadaRotulos = L.layerGroup().addTo(mapa);
     mapa.on('zoomend', atualizarRotulos);
@@ -1982,6 +2107,7 @@ const WebGeo = (() => {
         }
         const m = L.circleMarker(ll, { radius: s === 'acima' ? 8 : 6, weight: 2, color: '#fff', fillColor: COR_STATUS[s], fillOpacity: 1, className: 'pm pm-' + s })
           .bindPopup(() => popupPoco(p, param), { maxWidth: 320 })
+          .on('click', cliqueSecao)   // o clique num poço não chega ao mapa (o popup segura): avisa a seção daqui
           .on('popupopen', () => { st.popupAberto = p.id; })
           .on('popupclose', () => { if (st.popupAberto === p.id && !st.redesenhando) st.popupAberto = null; })
           .addTo(camadaPocos);
@@ -1996,6 +2122,7 @@ const WebGeo = (() => {
       pts.push(ll);
       const m = L.marker(ll, { icon: L.divIcon({ className: '', html: '<div class="ponto-sondagem"></div>', iconSize: [12, 12] }) })
         .bindPopup(() => popupSondagem(f), { maxWidth: 320 })
+        .on('click', cliqueSecao)
         .on('popupopen', () => { st.popupAberto = 'ficha:' + f.id; })
         .on('popupclose', () => { if (st.popupAberto === 'ficha:' + f.id && !st.redesenhando) st.popupAberto = null; })
         .addTo(camadaPocos);
@@ -2259,6 +2386,312 @@ const WebGeo = (() => {
     if (c.semCota > 0) partes.push(`${c.semCota} poço(s) com N.A. ficaram de fora por falta de cota ou coordenada`);
     $('#pot-resumo').textContent = partes.join(' · ');
     $('#leg-pot-resumo').textContent = partes.slice(0, 5).join(' · ');
+  }
+
+  // ------------------------------------------------------------- seção geológica (corte A–A')
+  const chaveSecao = () => 'webgeo.secao.' + (st.projetoId || '');
+  const NOME_FIM_SECAO = "A'";
+
+  /** A linha da seção fica guardada neste navegador, por projeto. */
+  function carregarSecao() {
+    st.secao.tracando = null; st.secao.linha = null;
+    try {
+      const v = JSON.parse(localStorage.getItem(chaveSecao()) || 'null');
+      if (Array.isArray(v) && v.length >= 2 && v.every(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))) st.secao.linha = v;
+    } catch (e) { /* sem armazenamento: começa sem seção */ }
+    $('#secao-barra').hidden = true;
+    if (mapa) { mapa.getContainer().classList.remove('mapa-ajustando'); mapa.doubleClickZoom.enable(); }
+  }
+  function guardarSecao() {
+    try {
+      if (st.secao.linha) localStorage.setItem(chaveSecao(), JSON.stringify(st.secao.linha)); else localStorage.removeItem(chaveSecao());
+    } catch (e) { /* sem armazenamento */ }
+  }
+
+  function iniciarSecao() {
+    if (!mapa || !st.projetoId) { toast('Escolha um projeto primeiro.'); return; }
+    if (st.ajuste) cancelarAjuste(true);
+    trocarView('visao');
+    st.secao.tracando = { pontos: [] };
+    mapa.closePopup();
+    mapa.doubleClickZoom.disable();
+    mapa.getContainer().classList.add('mapa-ajustando');
+    $('#secao-barra').hidden = false;
+    textoSecao(); renderSecaoMapa();
+    $('#secao-barra').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  function textoSecao() {
+    const t = st.secao.tracando; if (!t) return;
+    const n = t.pontos.length;
+    $('#secao-passo').textContent = n === 0 ? 'Clique no mapa onde a seção começa (ponto A)'
+      : n === 1 ? `Agora clique onde ela termina (ponto ${NOME_FIM_SECAO})` : `${n} pontos marcados. Clique em "Concluir" ou marque mais um ponto`;
+    $('#secao-dica').textContent = n === 0 ? 'O clique gruda no poço mais próximo. Passe a linha pelos poços que devem aparecer no corte.'
+      : 'Pode marcar pontos intermediários para a linha fazer curva. Dois cliques rápidos também concluem.';
+    $('#secao-concluir').disabled = n < 2;
+    $('#secao-desfazer').disabled = n === 0;
+  }
+
+  function cliqueSecao(ev) {
+    const t = st.secao.tracando; if (!t) return;
+    let ll = [ev.latlng.lat, ev.latlng.lng];
+    const c = mapa.latLngToContainerPoint(ev.latlng);
+    let melhor = 15;                                    // gruda no poço mais próximo, até 15 px
+    st.pontos.forEach(p => { const d = mapa.latLngToContainerPoint(p).distanceTo(c); if (d <= melhor) { melhor = d; ll = [p[0], p[1]]; } });
+    const u = t.pontos[t.pontos.length - 1];
+    if (u && mapa.latLngToContainerPoint(u).distanceTo(mapa.latLngToContainerPoint(ll)) < 5) return;   // 2º clique de um clique duplo
+    t.pontos.push(ll);
+    textoSecao(); renderSecaoMapa();
+  }
+
+  function concluirSecao() {
+    const t = st.secao.tracando; if (!t || t.pontos.length < 2) return;
+    st.secao.linha = t.pontos;
+    fecharTracadoSecao();
+    guardarSecao();
+    render();
+    $('#sec-secao').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  function fecharTracadoSecao() {
+    st.secao.tracando = null;
+    $('#secao-barra').hidden = true;
+    mapa.getContainer().classList.remove('mapa-ajustando');
+    setTimeout(() => mapa.doubleClickZoom.enable(), 300);   // depois do clique duplo que concluiu
+  }
+  function cancelarSecao() { if (!st.secao.tracando) return; fecharTracadoSecao(); renderSecaoMapa(); }
+  function desfazerSecao() { const t = st.secao.tracando; if (!t) return; t.pontos.pop(); textoSecao(); renderSecaoMapa(); }
+  function apagarSecao() { st.secao.linha = null; guardarSecao(); render(); toast('Seção apagada.'); }
+
+  /** Linha da seção no mapa (a definitiva ou a que está sendo traçada), com A e A' nas pontas. */
+  function renderSecaoMapa() {
+    if (!camadaSecao) return;
+    camadaSecao.clearLayers();
+    const t = st.secao.tracando, pts = t ? t.pontos : st.secao.linha;
+    if (!pts || !pts.length) return;
+    if (pts.length >= 2) {
+      L.polyline(pts, { pane: 'secao', color: '#172621', weight: 6, opacity: .6, interactive: false }).addTo(camadaSecao);
+      L.polyline(pts, { pane: 'secao', color: '#FFD60A', weight: 2.5, dashArray: t ? '6 6' : null, interactive: false }).addTo(camadaSecao);
+    }
+    const pino = (ll, txt) => L.marker(ll, { icon: L.divIcon({ className: '', html: `<div class="pino-secao">${txt}</div>`, iconSize: [22, 22] }), interactive: false, keyboard: false, zIndexOffset: 500 }).addTo(camadaSecao);
+    pino(pts[0], 'A');
+    if (pts.length >= 2) pino(pts[pts.length - 1], NOME_FIM_SECAO);
+    pts.slice(1, -1).forEach(ll => L.circleMarker(ll, { pane: 'secao', radius: 4, color: '#172621', weight: 1.5, fillColor: '#FFD60A', fillOpacity: 1, interactive: false }).addTo(camadaSecao));
+    // poços que entram no corte: anel amarelo
+    if (!t && st.secaoCalc) st.secaoCalc.cols.forEach(c =>
+      L.circleMarker(c.ll, { pane: 'secao', radius: 11, color: '#FFD60A', weight: 2, fill: false, interactive: false }).addTo(camadaSecao));
+  }
+
+  /** Dados de uma sondagem para o corte: camadas, tubo, N.A., cota e profundidade. p = poço; ficha = sondagem sem poço. */
+  function colunaSecao(p, ficha) {
+    const num = WGImport.numero;
+    const fichas = ficha ? [ficha] : (st.sondagens.get(codigo(p.codigo)) || []);
+    const f = fichas.length ? fichas[fichas.length - 1] : null, dados = f?.data || {};
+    const wg = p ? (st.perfis.get(p.id) || []) : [];
+    let camadas = (dados.litologia || [])
+      .map(r => ({ de: num(r.inicio), ate: num(r.termino), lit: String(r.litologia || '').trim(), cor: String(r.cor || '').trim(), hex: corLitologia(r.cor, r.litologia) }))
+      .filter(r => r.de != null && r.ate != null && r.ate > r.de);
+    let fonte = camadas.length ? `ficha ${f.sondagem_no || ''} do Perfil`.replace('  ', ' ') : '';
+    if (!camadas.length) {
+      camadas = wg.filter(r => r.estrutura === 'SOLO').map(r => ({ de: +r.de_m, ate: +r.ate_m, lit: String(r.descricao || '').trim(), cor: '', hex: r.cor_hex || '#9C8F78' }));
+      if (camadas.length) fonte = 'aba Litologia da planilha';
+    }
+    camadas.sort((a, b) => a.de - b.de);
+    let tubo = [];
+    const liso = num(dados.perfil?.tuboLiso), filtro = num(dados.perfil?.tuboFiltro);
+    if (liso != null && filtro != null && liso + filtro > 0) tubo = [{ tipo: 'CEGO', de: 0, ate: liso }, { tipo: 'FILTRO', de: liso, ate: liso + filtro }];
+    else tubo = wg.filter(r => r.estrutura === 'CEGO' || r.estrutura === 'FILTRO').map(r => ({ tipo: r.estrutura, de: +r.de_m, ate: +r.ate_m }));
+    const med = p ? st.medicoes.find(m => m.poco_id === p.id && m.campanha_id === st.campanhaId) : null;
+    let na = null, naFonte = '';
+    if (med?.nivel_agua != null) { na = +med.nivel_agua; naFonte = 'campanha'; }
+    else if (num(dados.perfil?.naEstabilizado) != null) { na = num(dados.perfil.naEstabilizado); naFonte = 'ficha'; }
+    const prof = Math.max(0, ...camadas.map(r => r.ate), ...tubo.map(r => r.ate), num(p?.profundidade) || 0,
+      num(dados.perfil?.profTotalSondagem) || 0, num(dados.perfil?.profTotalPoco) || 0);
+    return {
+      nome: p ? p.codigo : (ficha.sondagem_no || 'Sondagem'), rede: p ? (p.rede || '-') : 'Sondagem', pocoId: p ? p.id : null,
+      cota: p && p.cota_topo != null ? +p.cota_topo : null, prof, camadas, tubo, na, naFonte, fonte
+    };
+  }
+
+  /** Quem entra no corte: poços e sondagens a até "faixa" metros da linha, na ordem em que aparecem de A para A'. */
+  function montarSecao() {
+    const ll = st.secao.linha; if (!ll) return null;
+    const proj = WGPluma.projecao(ll[0][0], ll[0][1]);
+    const linha = ll.map(p => proj.paraXY(p[0], p[1]));
+    const comp = WGSecao.comprimento(linha);
+    if (!(comp > 0.5)) return null;
+    const { pocos, porPoco } = selecao();
+    const cand = pocos.filter(p => p.latitude !== null).map(p => ({ p, lat: +p.latitude, lon: +p.longitude }));
+    if (!st.redesOcultas.has('Sondagens')) st.soltas.forEach(f => cand.push({ f, lat: f.latitude, lon: f.longitude }));
+    const comCota = st.pocos.filter(p => p.latitude !== null && p.cota_topo != null)
+      .map(p => ({ ...proj.paraXY(+p.latitude, +p.longitude), z: +p.cota_topo }));
+    const cols = [];
+    cand.forEach(c => {
+      const xy = proj.paraXY(c.lat, c.lon), pr = WGSecao.projetar(linha, xy);
+      if (pr.afast > st.secao.faixa) return;
+      const col = colunaSecao(c.p || null, c.f || null);
+      Object.assign(col, { dist: pr.dist, afast: pr.afast, ll: [c.lat, c.lon], res: c.p ? (porPoco.get(c.p.id) || null) : null });
+      if (col.cota == null) {                            // sem cota: usa a do poço mais próximo (marcado com *)
+        col.cotaEstimada = true;
+        if (comCota.length) col.cota = comCota.reduce((a, b) => Math.hypot(b.x - xy.x, b.y - xy.y) < Math.hypot(a.x - xy.x, a.y - xy.y) ? b : a).z;
+        else col.cota = 0;
+      }
+      cols.push(col);
+    });
+    cols.sort((a, b) => (a.dist - b.dist) || a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true }));
+    return { comp, cols, vertices: WGSecao.vertices(linha), semDatum: !comCota.length };
+  }
+
+  function renderSecao() {
+    const tem = !!st.secao.linha;
+    $('#sec-secao').hidden = !tem;
+    $('#secao-painel').hidden = !tem;
+    $('#btn-secao-tracar').textContent = tem ? 'Traçar outra seção' : `Traçar seção A–${NOME_FIM_SECAO}`;
+    st.secaoCalc = tem ? montarSecao() : null;
+    renderSecaoMapa();
+    if (!tem) return;
+    const d = st.secaoCalc, host = $('#secao-desenho');
+    $('#btn-secao-baixar').disabled = !(d && d.cols.length);
+    if (!d || !d.cols.length) {
+      host.innerHTML = `<p class="secao-vazio">Nenhum poço ou sondagem a até ${fmt(st.secao.faixa, 0)} m da linha. Aumente a faixa no menu ou trace a linha passando pelos poços.</p>`;
+      $('#secao-legenda').innerHTML = ''; $('#secao-nota').textContent = ''; $('#secao-hint').textContent = '';
+      return;
+    }
+    const cols = d.cols, COL = 18;
+    const W = Math.max(720, host.clientWidth || 980), mL = 56, mR = 62, mT = 70, mB = 46, pw = W - mL - mR;
+    const zTopo = Math.max(...cols.map(c => c.cota));
+    const zBase = Math.min(...cols.map(c => c.cota - Math.max(c.prof, c.na || 0, 1)));
+    const folga = Math.max(.3, (zTopo - zBase) * .06), zmax = zTopo + folga, zmin = zBase - folga;
+    const pxH = pw / d.comp;                                         // pixels por metro na horizontal
+    let ev = st.secao.exag || WGSecao.exageroAuto(pw, d.comp, 330, zmax - zmin), limitado = false;
+    let ph = (zmax - zmin) * pxH * ev;
+    if (ph > 900) { ph = 900; limitado = true; } else if (ph < 120) { ph = 120; limitado = true; }
+    if (limitado) ev = ph / ((zmax - zmin) * pxH);
+    const H = mT + ph + mB, pxV = ph / (zmax - zmin);
+    const X = s => mL + s * pxH, Y = z => mT + (zmax - z) * pxV;
+    const xr = cols.map(c => X(c.dist));
+    const xd = WGSecao.espalhar(xr, COL + 8, mL + COL / 2, W - mR - COL / 2);  // poços colados ficam lado a lado
+    const n1 = v => (+v).toFixed(1);
+    let g = '';
+
+    // eixos e grade
+    const pz = WGSecao.passoBonito(zmax - zmin, Math.max(3, Math.round(ph / 55)));
+    for (let z = Math.ceil(zmin / pz) * pz; z <= zmax + 1e-9; z += pz) {
+      g += `<line x1="${mL}" x2="${W - mR}" y1="${n1(Y(z))}" y2="${n1(Y(z))}" stroke="currentColor" stroke-opacity=".13"/>`
+        + `<text x="${mL - 7}" y="${n1(Y(z) + 3.5)}" font-size="10.5" text-anchor="end" fill="currentColor" fill-opacity=".8">${fmt(d.semDatum ? Math.abs(z) : z, 2)}</text>`;
+    }
+    const pd = WGSecao.passoBonito(d.comp, Math.max(4, Math.round(pw / 110)));
+    for (let s = 0; s <= d.comp + 1e-9; s += pd) {
+      g += `<line x1="${n1(X(s))}" x2="${n1(X(s))}" y1="${mT + ph}" y2="${mT + ph + 5}" stroke="currentColor" stroke-opacity=".6"/>`
+        + `<text x="${n1(X(s))}" y="${mT + ph + 17}" font-size="10.5" text-anchor="middle" fill="currentColor" fill-opacity=".8">${fmt(s, 1)}</text>`;
+    }
+    g += `<rect x="${mL}" y="${mT}" width="${pw}" height="${n1(ph)}" fill="none" stroke="currentColor" stroke-opacity=".45"/>`
+      + `<text x="${mL + pw / 2}" y="${n1(H - 8)}" font-size="11" text-anchor="middle" fill="currentColor" fill-opacity=".8">Distância ao longo da seção (m)</text>`
+      + `<text transform="rotate(-90 14 ${n1(mT + ph / 2)})" x="14" y="${n1(mT + ph / 2)}" font-size="11" text-anchor="middle" fill="currentColor" fill-opacity=".8">${d.semDatum ? 'Profundidade (m)' : 'Cota (m)'}</text>`
+      + `<text x="${mL}" y="20" font-size="17" font-weight="700" fill="currentColor">A</text>`
+      + `<text x="${W - mR}" y="20" font-size="17" font-weight="700" text-anchor="end" fill="currentColor">${NOME_FIM_SECAO}</text>`;
+    d.vertices.slice(1, -1).forEach(s => {
+      g += `<line x1="${n1(X(s))}" x2="${n1(X(s))}" y1="${mT}" y2="${mT + ph}" stroke="currentColor" stroke-opacity=".4" stroke-dasharray="2 4"/>`
+        + `<text x="${n1(X(s))}" y="${mT + ph - 5}" font-size="9.5" text-anchor="middle" fill="currentColor" fill-opacity=".6">muda de direção</text>`;
+    });
+
+    // camadas iguais ligadas entre sondagens vizinhas (interpretação automática)
+    const comLito = cols.map((c, i) => i).filter(i => cols[i].camadas.length);   // pula as sondagens sem litologia
+    if (st.secao.ligar) for (let q = 0; q + 1 < comLito.length; q++) {
+      const i = comLito[q], j = comLito[q + 1], a = cols[i], b = cols[j];
+      WGSecao.correlacionar(a.camadas, b.camadas).forEach(([ia, ib]) => {
+        const ca = a.camadas[ia], cb = b.camadas[ib], x1 = xd[i] + COL / 2, x2 = xd[j] - COL / 2;
+        g += `<polygon points="${n1(x1)},${n1(Y(a.cota - ca.de))} ${n1(x2)},${n1(Y(b.cota - cb.de))} ${n1(x2)},${n1(Y(b.cota - cb.ate))} ${n1(x1)},${n1(Y(a.cota - ca.ate))}" fill="${esc(ca.hex)}" fill-opacity=".42" stroke="${esc(ca.hex)}" stroke-opacity=".9" stroke-width=".8"/>`;
+      });
+    }
+
+    // terreno (cota do topo de cada ponto)
+    const terreno = [[mL, Y(cols[0].cota)], ...cols.map((c, i) => [xd[i], Y(c.cota)]), [W - mR, Y(cols[cols.length - 1].cota)]];
+    g += `<polyline points="${terreno.map(p => n1(p[0]) + ',' + n1(p[1])).join(' ')}" fill="none" stroke="#7A5A2E" stroke-width="2"/>`;
+
+    // sondagens
+    const litos = new Map();
+    cols.forEach((c, i) => {
+      const x = xd[i], x0 = x - COL / 2, yt = Y(c.cota);
+      const dica = [c.nome + (c.rede && c.rede !== '-' ? ` (${c.rede})` : ''),
+        d.semDatum ? '' : `Cota do topo: ${fmt(c.cota, 3)} m${c.cotaEstimada ? ' (estimada pelo poço mais próximo)' : ''}`,
+        c.prof ? `Profundidade: ${fmt(c.prof)} m` : '', c.na != null ? `N.A.: ${fmt(c.na)} m (${c.naFonte === 'campanha' ? 'medido na campanha' : 'da ficha do Perfil'})` : '',
+        c.res ? `Resultado: ${textoValor(c.res)} (${ROTULO_STATUS[status(c.res)]})` : '', c.fonte ? `Litologia: ${c.fonte}` : 'Sem litologia cadastrada',
+        `A ${fmt(c.dist, 1)} m do ponto A · ${fmt(c.afast, 1)} m fora da linha`].filter(Boolean).join('\n');
+      g += `<g class="secao-coluna"><title>${esc(dica)}</title>`;
+      g += `<path d="M${n1(xr[i] - 3)} ${mT + ph} h6 l-3 -5 z" fill="currentColor" fill-opacity=".55"/>`;   // posição real na linha
+      if (c.camadas.length) {
+        c.camadas.forEach(r => {
+          g += `<rect x="${n1(x0)}" y="${n1(Y(c.cota - r.de))}" width="${COL}" height="${n1(Math.max(.6, (r.ate - r.de) * pxV))}" fill="${esc(r.hex)}" stroke="#ffffff" stroke-width=".6"/>`;
+          const k = WGSecao.chaveLit(r.lit) + '|' + r.hex;
+          if (!litos.has(k)) litos.set(k, { hex: r.hex, texto: [r.lit, r.cor].filter(Boolean).join(' · ') || 'sem descrição' });
+        });
+        g += `<rect x="${n1(x0)}" y="${n1(yt)}" width="${COL}" height="${n1(Math.max(1, c.prof * pxV))}" fill="none" stroke="currentColor" stroke-opacity=".75"/>`;
+      } else if (c.prof > 0) {
+        g += `<rect x="${n1(x0)}" y="${n1(yt)}" width="${COL}" height="${n1(c.prof * pxV)}" fill="currentColor" fill-opacity=".05" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="3 3"/>`;
+      } else {
+        g += `<line x1="${n1(x)}" x2="${n1(x)}" y1="${n1(yt)}" y2="${n1(yt + 14)}" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="3 3"/>`;
+      }
+      c.tubo.forEach(r => {
+        const y0 = Y(c.cota - r.de), h = (r.ate - r.de) * pxV;
+        g += r.tipo === 'FILTRO'
+          ? `<rect x="${n1(x - 3.5)}" y="${n1(y0)}" width="7" height="${n1(h)}" fill="#DDEAF6" stroke="#2B7BBA"/>`
+            + Array.from({ length: Math.floor(h / 4) }, (_, q) => `<line x1="${n1(x - 2.5)}" x2="${n1(x + 2.5)}" y1="${n1(y0 + 2 + q * 4)}" y2="${n1(y0 + 2 + q * 4)}" stroke="#2B7BBA" stroke-width=".8"/>`).join('')
+          : `<rect x="${n1(x - 3.5)}" y="${n1(y0)}" width="7" height="${n1(h)}" fill="#F3F5F4" stroke="#56655D"/>`;
+      });
+      if (c.na != null) {
+        const yn = Y(c.cota - c.na);
+        g += `<path d="M${n1(x0 - 9)} ${n1(yn - 7)} h8 l-4 6.5 z" fill="#1565A8" stroke="#ffffff" stroke-width=".6"/>`
+          + `<line x1="${n1(x0 - 2)}" x2="${n1(x0 + COL + 2)}" y1="${n1(yn)}" y2="${n1(yn)}" stroke="#1565A8" stroke-width="1.6"/>`;
+      }
+      if (c.res) g += `<circle cx="${n1(x)}" cy="${n1(yt - 7)}" r="4" fill="${COR_STATUS[status(c.res)]}" stroke="#ffffff" stroke-width="1"/>`;
+      g += `<text transform="rotate(-55 ${n1(x)} ${n1(yt - 15)})" x="${n1(x)}" y="${n1(yt - 15)}" font-size="10.5" font-weight="600" fill="currentColor" font-family="IBM Plex Mono, monospace">${esc(c.nome)}${c.cotaEstimada && !d.semDatum ? '*' : ''}</text></g>`;
+    });
+
+    // nível d'água: uma linha por rede (PM e PMN medem níveis diferentes do aquífero)
+    const TRACOS = ['7 3', '2 3', '9 3 2 3', '4 4'];
+    const redes = [...new Set(cols.filter(c => c.na != null).map(c => c.rede))];
+    redes.forEach((r, k) => {
+      const pts = cols.map((c, i) => c.rede === r && c.na != null ? n1(xd[i]) + ',' + n1(Y(c.cota - c.na)) : null).filter(Boolean);
+      if (pts.length >= 2) g += `<polyline points="${pts.join(' ')}" fill="none" stroke="#1565A8" stroke-width="1.5" stroke-dasharray="${TRACOS[k % TRACOS.length]}"/>`;
+    });
+
+    host.innerHTML = `<svg id="secao-svg" xmlns="http://www.w3.org/2000/svg" width="${W}" height="${n1(H)}" viewBox="0 0 ${W} ${n1(H)}" font-family="IBM Plex Sans, sans-serif" role="img" aria-label="Seção geológica A–${NOME_FIM_SECAO}">${g}</svg>`;
+
+    // legenda e notas
+    const item = (desenho, texto) => `<span>${desenho}${esc(texto)}</span>`;
+    let leg = [...litos.values()].map(l => item(`<i class="leg-lito" style="background:${esc(l.hex)}"></i>`, l.texto)).join('');
+    leg += item('<i class="leg-terreno"></i>', 'Terreno (cota do topo)');
+    if (cols.some(c => c.tubo.length)) leg += item('<i class="leg-tubo"></i>', 'Tubo liso') + item('<i class="leg-tubo leg-filtro"></i>', 'Filtro');
+    redes.forEach((r, k) => { leg += `<span><svg width="26" height="8"><line x1="0" x2="26" y1="4" y2="4" stroke="#1565A8" stroke-width="1.6" stroke-dasharray="${TRACOS[k % TRACOS.length]}"/></svg>${esc("Nível d'água" + (r !== '-' ? ' · ' + r : ''))}</span>`; });
+    if (cols.some(c => !c.camadas.length)) leg += item('<i class="leg-semlito"></i>', 'Sem litologia cadastrada');
+    $('#secao-legenda').innerHTML = leg;
+    const camp = st.campanhas.find(c => c.id === st.campanhaId);
+    const notas = [
+      `Exagero vertical ${fmt(ev, 1)}x${limitado && st.secao.exag ? ' (ajustado para caber na tela)' : ''}`,
+      `comprimento ${fmt(d.comp, 1)} m`, `faixa de ${fmt(st.secao.faixa, 0)} m para cada lado`, `${cols.length} ponto(s)`
+    ];
+    if (cols.some(c => c.naFonte === 'campanha') && camp) notas.push(`N.A. da campanha ${camp.codigo}`);
+    if (d.semDatum) notas.push('nenhum poço tem cota: o desenho está em profundidade, com todos os topos no mesmo nível');
+    else if (cols.some(c => c.cotaEstimada)) notas.push('* sem cota cadastrada: usada a cota do poço mais próximo');
+    if (st.secao.ligar && cols.some(c => c.camadas.length)) notas.push('a ligação entre camadas é automática (mesmo nome de camada) e precisa de conferência');
+    $('#secao-nota').textContent = notas.join(' · ') + '. Passe o mouse sobre uma sondagem para ver os detalhes.';
+    $('#secao-hint').textContent = `${cols.length} ponto(s) · ${fmt(d.comp, 0)} m`;
+  }
+
+  /** Baixa o desenho da seção em SVG (abre no navegador, no Inkscape, no CorelDRAW e no AutoCAD mais novo). */
+  function baixarSecao() {
+    const svg = document.querySelector('#secao-svg'); if (!svg) return;
+    const c = svg.cloneNode(true);
+    c.setAttribute('style', 'color:#172621;background:#ffffff');
+    const fundo = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    fundo.setAttribute('width', '100%'); fundo.setAttribute('height', '100%'); fundo.setAttribute('fill', '#ffffff');
+    c.insertBefore(fundo, c.firstChild);
+    const proj = st.projetos.find(p => p.id === st.projetoId);
+    const url = URL.createObjectURL(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(c)], { type: 'image/svg+xml' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `secao_A-A_${(proj?.nome || 'projeto').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\-]+/g, '_')}.svg`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
   function renderEvolucao(param) {
