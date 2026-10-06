@@ -1138,7 +1138,8 @@ if (typeof window !== 'undefined' && window.document) {
 
 const WebGeo = (() => {
   let sb;                       // cliente Supabase
-  let mapa, camadaPocos, camadaPluma, camadaPot, camadaPlanta, camadaAjuste, rendPlanta;
+  let mapa, camadaPocos, camadaRotulos, camadaPluma, camadaPot, camadaPlanta, camadaAjuste, rendPlanta;
+  let rotulosDoMapa = [];        // nomes a escrever no mapa: {ll, html, texto, status}
   let graficos = {};
   let usuarioCarregado = null;  // evita recarregar a tela quando o Supabase só renova o token
   const st = {
@@ -1319,6 +1320,7 @@ const WebGeo = (() => {
     if (v === 'visao' && mapa) setTimeout(() => {
       mapa.invalidateSize();
       if (st.enquadrarPendente) enquadrarMapa();
+      atualizarRotulos();
     }, 0);
   }
 
@@ -1881,13 +1883,78 @@ const WebGeo = (() => {
     camadaPluma = L.layerGroup().addTo(mapa);
     camadaPot = L.layerGroup().addTo(mapa);
     camadaPocos = L.layerGroup().addTo(mapa);
+    camadaRotulos = L.layerGroup().addTo(mapa);
     mapa.on('zoomend', atualizarRotulos);
     atualizarRotulos();
   }
 
-  /** Abaixo do zoom 19 os nomes se sobrepõem: mostra só os poços acima do VI. */
+  /**
+   * Escreve os nomes dos poços sem deixar um em cima do outro:
+   *  - poços colados na tela (PM-26, PMN-26A, PMN-26B) viram um bloco só, um nome por linha;
+   *  - cada bloco procura um lado livre do ponto (direita, esquerda, cima, baixo e diagonais).
+   * Abaixo do zoom 19 só os poços acima do VI mostram o nome. Refaz a cada mudança de zoom.
+   */
   function atualizarRotulos() {
-    mapa.getContainer().classList.toggle('rotulos-ocultos', mapa.getZoom() < 19);
+    if (!mapa || !camadaRotulos) return;
+    camadaRotulos.clearLayers();
+    if (!mapaVisivel()) return;
+    const perto = mapa.getZoom() >= 19;
+    const todos = rotulosDoMapa.map(r => ({ ...r, pt: mapa.latLngToLayerPoint(r.ll) }));
+    const itens = todos.filter(r => perto || r.status === 'acima');
+    // 1) junta os que estão colados na tela (até 14 px, em cadeia)
+    const grupos = [];
+    itens.forEach(it => {
+      const g = grupos.find(g => g.itens.some(o => Math.hypot(o.pt.x - it.pt.x, o.pt.y - it.pt.y) <= 14));
+      if (g) g.itens.push(it); else grupos.push({ itens: [it] });
+    });
+    const LARG_LETRA = 6.7, ALT_LINHA = 14, FOLGA = 9;
+    grupos.forEach(g => {
+      // de cima para baixo, como os pontos estão na tela (as linhas de chamada não se cruzam); empate: ordem do nome
+      g.itens.sort((a, b) => (Math.round(a.pt.y / 4) - Math.round(b.pt.y / 4)) || a.texto.localeCompare(b.texto, 'pt-BR', { numeric: true }));
+      g.x = g.itens.reduce((s, o) => s + o.pt.x, 0) / g.itens.length;
+      g.y = g.itens.reduce((s, o) => s + o.pt.y, 0) / g.itens.length;
+      g.raio = Math.max(...g.itens.map(o => Math.hypot(o.pt.x - g.x, o.pt.y - g.y))) + FOLGA + (g.itens.length > 1 ? 7 : 0); // bloco fica um pouco afastado: cabe a linha de chamada
+      g.w = Math.max(...g.itens.map(o => o.largura * LARG_LETRA)) + 4;
+      g.h = g.itens.length * ALT_LINHA;
+      g.acima = g.itens.some(o => o.status === 'acima');
+    });
+    // 2) coloca primeiro os acima do VI e os blocos maiores; cada um escolhe o lado com menos sobreposição
+    const ocupado = todos.map(o => ({ x0: o.pt.x - 7, y0: o.pt.y - 7, x1: o.pt.x + 7, y1: o.pt.y + 7 })); // os pontos dos poços
+    const sobra = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+    grupos.sort((a, b) => (b.acima - a.acima) || (b.itens.length - a.itens.length) || (a.y - b.y) || (a.x - b.x));
+    grupos.forEach(g => {
+      const r = g.raio, w = g.w, h = g.h;
+      const lados = [                       // [x do canto esquerdo, y do topo, alinhamento do texto]
+        [r, -h / 2, 'left'], [-r - w, -h / 2, 'right'], [-w / 2, -r - h, 'center'], [-w / 2, r, 'center'],
+        [r * .7, -r * .7 - h, 'left'], [r * .7, r * .7, 'left'], [-r * .7 - w, -r * .7 - h, 'right'], [-r * .7 - w, r * .7, 'right']
+      ];
+      let melhor = null;
+      for (const [dx, dy, alinha] of lados) {
+        const cx = { x0: g.x + dx, y0: g.y + dy, x1: g.x + dx + w, y1: g.y + dy + h };
+        const custo = ocupado.reduce((s, o) => s + sobra(cx, o), 0);
+        if (!melhor || custo < melhor.custo - .5) melhor = { cx, custo, dx, dy, alinha };
+        if (custo === 0) break;
+      }
+      ocupado.push(melhor.cx);
+      // linha de chamada: liga cada nome ao seu poço (da borda do ponto até a ponta do texto mais próxima)
+      let linhas = '';
+      g.itens.forEach((o, i) => {
+        const px = o.pt.x - g.x, py = o.pt.y - g.y, larg = o.largura * LARG_LETRA;
+        const ini = melhor.alinha === 'left' ? melhor.dx : melhor.alinha === 'right' ? melhor.dx + w - larg : melhor.dx + (w - larg) / 2;
+        const ty = melhor.dy + i * ALT_LINHA + ALT_LINHA / 2;
+        const tx = Math.abs(px - (ini - 2)) <= Math.abs(px - (ini + larg + 2)) ? ini - 2 : ini + larg + 2;
+        const d = Math.hypot(tx - px, ty - py), borda = o.status === 'acima' ? 9 : 7;
+        if (d < borda + 4) return;                         // nome já encostado no ponto: não precisa de linha
+        const x0 = px + (tx - px) * borda / d, y0 = py + (ty - py) * borda / d;
+        const c = `x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${tx.toFixed(1)}" y2="${ty.toFixed(1)}"`;
+        linhas += `<line class="chamada-fundo" ${c}/><line class="chamada" ${c}/>`;
+      });
+      const svg = linhas ? `<svg class="rotulos-linhas" width="1" height="1">${linhas}</svg>` : '';
+      const html = svg + `<div class="rotulos-bloco" style="left:${melhor.dx.toFixed(1)}px;top:${melhor.dy.toFixed(1)}px;width:${w.toFixed(1)}px;text-align:${melhor.alinha}">`
+        + g.itens.map(o => `<div class="rotulo-pm rotulo-${o.status}">${o.html}</div>`).join('') + '</div>';
+      L.marker(mapa.layerPointToLatLng([g.x, g.y]), { icon: L.divIcon({ className: 'rotulos-ancora', html, iconSize: [0, 0] }), interactive: false, keyboard: false })
+        .addTo(camadaRotulos);
+    });
   }
 
   function renderMapa(param, enquadrar) {
@@ -1899,6 +1966,7 @@ const WebGeo = (() => {
     const marcadores = new Map();
     const { pocos, porPoco } = selecao();
     const pts = [];
+    rotulosDoMapa = [];
     const ordem = { sem: 0, lq: 1, abaixo: 2, acima: 3 }; // os acima do VI ficam por cima
     const carga = st.potCalc?.porPoco || new Map();       // potenciométrico ligado: carga ao lado do nome
     pocos.filter(p => p.latitude !== null)
@@ -1913,30 +1981,34 @@ const WebGeo = (() => {
           L.circleMarker(ll, { radius: 12, color: '#5FBE9C', weight: 2, dashArray: '3 3', fill: false, interactive: false }).addTo(camadaPocos);
         }
         const m = L.circleMarker(ll, { radius: s === 'acima' ? 8 : 6, weight: 2, color: '#fff', fillColor: COR_STATUS[s], fillOpacity: 1, className: 'pm pm-' + s })
-          .bindTooltip(esc(p.codigo) + (carga.has(p.id) ? ` <span class="rotulo-carga">${carga.get(p.id).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>` : ''), { permanent: true, direction: 'right', offset: [8, 0], className: 'rotulo-pm rotulo-' + s })
           .bindPopup(() => popupPoco(p, param), { maxWidth: 320 })
           .on('popupopen', () => { st.popupAberto = p.id; })
           .on('popupclose', () => { if (st.popupAberto === p.id && !st.redesenhando) st.popupAberto = null; })
           .addTo(camadaPocos);
         marcadores.set(p.id, m);
+        const h = carga.has(p.id) ? carga.get(p.id).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        rotulosDoMapa.push({ ll, status: s, texto: p.codigo, largura: p.codigo.length + (h ? h.length + 2 : 0),
+          html: esc(p.codigo) + (h ? ` <span class="rotulo-carga">${h}</span>` : '') });
       });
     // fichas do Perfil sem poço: quadrado verde com o nº da sondagem
     if (!st.redesOcultas.has('Sondagens')) st.soltas.forEach(f => {
       const ll = [f.latitude, f.longitude];
       pts.push(ll);
       const m = L.marker(ll, { icon: L.divIcon({ className: '', html: '<div class="ponto-sondagem"></div>', iconSize: [12, 12] }) })
-        .bindTooltip(esc(f.sondagem_no || 'Sondagem'), { permanent: true, direction: 'right', offset: [8, 0], className: 'rotulo-pm rotulo-sond' })
         .bindPopup(() => popupSondagem(f), { maxWidth: 320 })
         .on('popupopen', () => { st.popupAberto = 'ficha:' + f.id; })
         .on('popupclose', () => { if (st.popupAberto === 'ficha:' + f.id && !st.redesenhando) st.popupAberto = null; })
         .addTo(camadaPocos);
       marcadores.set('ficha:' + f.id, m);
+      const nome = f.sondagem_no || 'Sondagem';
+      rotulosDoMapa.push({ ll, status: 'sond', texto: nome, largura: nome.length, html: esc(nome) });
     });
     st.pontos = pts;
     // reabre o popup que estava aberto — só com o mapa visível (escondido, o Leaflet erra a largura)
     if (aberto && marcadores.has(aberto) && mapaVisivel()) marcadores.get(aberto).openPopup();
     else if (aberto) st.popupAberto = null;
     if (enquadrar) enquadrarMapa();
+    atualizarRotulos();
     const semCoord = pocos.filter(p => p.latitude === null).length;
     $('#mapa-nota').textContent = semCoord ? `${semCoord} poço(s) sem coordenadas não aparecem no mapa.` : '';
   }

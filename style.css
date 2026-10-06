@@ -255,13 +255,16 @@
   .bola.st-lq{background:var(--st-lq);} .bola.st-sem{background:var(--st-sem);}
   .bola.st-sondagem{background:transparent;border:2px dashed var(--accent);box-shadow:none;width:14px;height:14px;}
 
-  .leaflet-tooltip.rotulo-pm{
-    background:none;border:0;box-shadow:none;padding:0;font-family:var(--font-mono);font-weight:600;font-size:11px;color:#fff;
-    text-shadow:0 0 3px #000,0 0 2px #000;
+  /* nomes dos poços: blocos posicionados pelo script para não ficarem um em cima do outro */
+  .rotulos-ancora{overflow:visible;pointer-events:none;}
+  .rotulos-bloco{position:absolute;pointer-events:none;}
+  .rotulos-linhas{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;}
+  .rotulos-linhas .chamada-fundo{stroke:#000;stroke-opacity:.55;stroke-width:3;stroke-linecap:round;}
+  .rotulos-linhas .chamada{stroke:#fff;stroke-width:1.2;stroke-linecap:round;}
+  .rotulo-pm{
+    font-family:var(--font-mono);font-weight:600;font-size:11px;line-height:14px;height:14px;white-space:nowrap;color:#fff;
+    text-shadow:0 0 3px #000,0 0 2px #000,0 0 1px #000;
   }
-  .leaflet-tooltip.rotulo-pm::before{display:none;}
-  /* com zoom afastado, só os poços acima do VI mostram o nome */
-  .rotulos-ocultos .leaflet-tooltip.rotulo-pm:not(.rotulo-acima){display:none;}
 
   .leaflet-popup-content-wrapper{border-radius:var(--radius-m);}
   .pop{font-family:var(--font-sans);font-size:13px;display:flex;flex-direction:column;gap:5px;min-width:210px;color:#172621;}
@@ -316,7 +319,7 @@
   }
   .rotulo-carga{margin-left:3px;padding:0 3px;border-radius:2px;background:#1565A8;color:#fff;text-shadow:none;font-weight:500;}
   .ponto-sondagem{display:inline-block;width:12px;height:12px;background:#5FBE9C;border:2px solid #fff;transform:rotate(45deg);box-shadow:0 0 0 1px rgba(0,0,0,.45);}
-  .leaflet-tooltip.rotulo-sond{color:#DCEAE4;}
+  .rotulo-pm.rotulo-sond{color:#DCEAE4;}
   .imp-proj{font-style:normal;font-size:11.5px;color:var(--accent-ink);}
   .centroide-mapa{width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid #172621;box-shadow:0 0 0 2px #fff;}
   .centroide-mapa.ini{background:transparent;border:2px dashed #fff;box-shadow:0 0 0 1px #172621;}
