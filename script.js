@@ -1185,6 +1185,115 @@ const WGSecao = (() => {
   }
 
   /**
+   * Tipo principal do material de uma camada ("Aterro de argila siltosa" -> aterro,
+   * "Passagem de cascalho" -> cascalho). Serve para ligar camadas parecidas, mesmo com nomes diferentes.
+   */
+  function classeLit(t) {
+    const k = chaveLit(t);
+    const grupos = [
+      ['piso', /^(piso|concreto|asfalto|pavimento|contrapiso|laje|calcada)/],
+      ['aterro', /^(aterro|entulho)/],
+      ['argila', /^argil/], ['silte', /^silt/], ['areia', /^(areia|arenito)/],
+      ['cascalho', /^(cascalho|pedregulho|brita|seixo)/],
+      ['rocha', /^(rocha|saprolito|alteracao|granito|gnaisse|basalto|xisto|filito)/],
+      ['organico', /^(turfa|materia|solo organico)/]
+    ];
+    const palavras = k.split(' ').filter(p => !/^(de|da|do|com|e|passagem|camada|lente|nivel|solo)$/.test(p));
+    for (const p of palavras) for (const [nome, re] of grupos) if (re.test(p)) return nome;
+    return palavras[0] || '';
+  }
+
+  /** Quanto duas camadas se parecem: 0 = materiais diferentes; 1 a 2 = mesmo material, mais alto quanto mais palavras em comum. */
+  function semelhanca(a, b) {
+    const ca = classeLit(a.lit), cb = classeLit(b.lit);
+    if (!ca || ca !== cb) return 0;
+    const pa = new Set(chaveLit((a.lit || '') + ' ' + (a.cor || '')).split(' ')), pb = new Set(chaveLit((b.lit || '') + ' ' + (b.cor || '')).split(' '));
+    let comuns = 0; pa.forEach(p => { if (pb.has(p)) comuns++; });
+    return 1 + comuns / Math.max(1, pa.size + pb.size - comuns);
+  }
+
+  /** Camadas de uma sondagem sem buracos: trecho sem descrição vira uma camada "vazia" (mantém as profundidades certas). */
+  function completar(camadas) {
+    const r = []; let z = 0;
+    [...camadas].sort((x, y) => x.de - y.de).forEach((c, i) => {
+      if (c.de > z + 0.005) r.push({ de: z, ate: c.de, lit: '', cor: '', hex: '#E4E7E5', vazio: true, orig: -1 });
+      if (c.ate > Math.max(z, c.de)) { r.push({ ...c, de: Math.max(z, c.de), orig: i }); z = c.ate; }
+    });
+    return r;
+  }
+
+  /**
+   * Coloca as camadas de duas sondagens vizinhas na mesma ordem, de cima para baixo, casando as parecidas
+   * que estão em alturas próximas (sem cruzar). Devolve a lista de unidades [{ia, ib}]: ia ou ib = null
+   * quando a camada só existe de um lado.
+   */
+  function alinhar(a, b, cotaA = 0, cotaB = 0) {
+    const n = a.length, m = b.length;
+    const alcance = Math.max(1, (a[n - 1]?.ate || 0), (b[m - 1]?.ate || 0));
+    const nota = (i, j) => {
+      if (a[i].vazio || b[j].vazio) return (a[i].vazio && b[j].vazio) ? .5 : 0;
+      const s = semelhanca(a[i], b[j]); if (!s) return 0;
+      const dz = Math.abs((cotaA - (a[i].de + a[i].ate) / 2) - (cotaB - (b[j].de + b[j].ate) / 2));
+      return s * Math.max(.15, 1 - dz / alcance);       // mesma altura vale mais
+    };
+    const t = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
+      const s = nota(i, j);
+      t[i][j] = Math.max(t[i + 1][j], t[i][j + 1], s > 0 ? t[i + 1][j + 1] + s : 0);
+    }
+    const un = []; let i = 0, j = 0;
+    while (i < n || j < m) {
+      const s = (i < n && j < m) ? nota(i, j) : 0;
+      if (s > 0 && Math.abs(t[i][j] - (t[i + 1][j + 1] + s)) < 1e-9) { un.push({ ia: i, ib: j }); i++; j++; }
+      else if (j >= m || (i < n && t[i + 1][j] >= t[i][j + 1] - 1e-9 && (cotaA - a[i].de) >= (cotaB - (b[j]?.de ?? 0)) - 1e-9)) { un.push({ ia: i, ib: null }); i++; }
+      else if (i >= n || t[i][j + 1] >= t[i + 1][j] - 1e-9) { un.push({ ia: null, ib: j }); j++; }
+      else { un.push({ ia: i, ib: null }); i++; }
+    }
+    return un;
+  }
+
+  /**
+   * Preenche todo o espaço entre duas sondagens vizinhas, sem deixar vazio e sem cruzar camadas:
+   *  - camada que existe nas duas: a espessura muda suavemente de uma para a outra;
+   *  - camada que só existe numa: afina até acabar no caminho (cunha / lente).
+   * Devolve { s: [0..1], faixas: [{ ia, ib, topo: [...], base: [...] }] }, com topo e base em metros
+   * abaixo do terreno em cada posição s (0 = sondagem A, 1 = sondagem B). ia/ib são índices nas listas completas.
+   */
+  function preencher(camA, camB, cotaA = 0, cotaB = 0, passos = 28) {
+    const a = completar(camA), b = completar(camB);
+    if (!a.length || !b.length) return { s: [], faixas: [], a, b };
+    const un = alinhar(a, b, cotaA, cotaB);
+    const suave = x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+    let DA = a[a.length - 1].ate, DB = b[b.length - 1].ate;
+    const ALC = .62;                                                        // quem não tem par acaba a ~60% do caminho
+    // Sondagem mais rasa que a vizinha: as camadas que ficam abaixo do fim dela não "acabam" ali,
+    // só não foram alcançadas. Elas passam por baixo, com a mesma espessura (marcadas como "abaixo").
+    const fundoA = cotaA - DA, fundoB = cotaB - DB, TOL = .3;
+    for (let q = un.length - 1; q >= 0; q--) {
+      const u = un[q];
+      if (u.ia == null && cotaB - b[u.ib].de <= fundoA + TOL) u.abaixo = 'A';
+      else if (u.ib == null && cotaA - a[u.ia].de <= fundoB + TOL) u.abaixo = 'B';
+      else break;
+    }
+    un.forEach(u => { if (u.abaixo === 'A') DA += b[u.ib].ate - b[u.ib].de; else if (u.abaixo === 'B') DB += a[u.ia].ate - a[u.ia].de; });
+    const ss = Array.from({ length: passos + 1 }, (_, q) => q / passos);
+    const faixas = un.map(u => ({ ...u, topo: [], base: [] }));
+    ss.forEach(s => {
+      const e = suave(s);
+      const esp = un.map(u => {
+        const tA = u.ia != null ? a[u.ia].ate - a[u.ia].de : 0, tB = u.ib != null ? b[u.ib].ate - b[u.ib].de : 0;
+        if (u.ia != null && u.ib != null) return tA + (tB - tA) * e;
+        if (u.abaixo) return tA + tB;                       // passa por baixo da sondagem mais rasa
+        return u.ia != null ? tA * (1 - suave(s / ALC)) : tB * suave((s - (1 - ALC)) / ALC);
+      });
+      const soma = esp.reduce((x, y) => x + y, 0), D = DA + (DB - DA) * e, k = soma > 1e-9 ? D / soma : 0;
+      let z = 0;
+      esp.forEach((t, q) => { faixas[q].topo.push(z); z += t * k; faixas[q].base.push(z); });
+    });
+    return { s: ss, faixas, a, b };
+  }
+
+  /**
    * Afasta posições que ficariam uma em cima da outra no desenho (poços colados).
    * xs em ordem crescente; devolve novas posições com pelo menos `minimo` entre elas, dentro de [x0, x1].
    */
@@ -1227,7 +1336,7 @@ const WGSecao = (() => {
     return [1, 2, 3, 5, 10, 15, 20, 30, 50, 100].reduce((a, b) => Math.abs(Math.log(b / ideal)) < Math.abs(Math.log(a / ideal)) ? b : a);
   }
 
-  return { comprimento, vertices, projetar, chaveLit, correlacionar, espalhar, passoBonito, exageroAuto };
+  return { comprimento, vertices, projetar, chaveLit, correlacionar, classeLit, semelhanca, completar, alinhar, preencher, espalhar, passoBonito, exageroAuto };
 })();
 
 if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf, WGPot, WGSecao };
@@ -2557,7 +2666,7 @@ const WebGeo = (() => {
       return;
     }
     const cols = d.cols, COL = 18;
-    const W = Math.max(720, host.clientWidth || 980), mL = 56, mR = 62, mT = 70, mB = 46, pw = W - mL - mR;
+    const W = Math.max(720, (host.clientWidth || 1020) - 40), mL = 56, mR = 62, mT = 70, mB = 46, pw = W - mL - mR;
     const zTopo = Math.max(...cols.map(c => c.cota));
     const zBase = Math.min(...cols.map(c => c.cota - Math.max(c.prof, c.na || 0, 1)));
     const folga = Math.max(.3, (zTopo - zBase) * .06), zmax = zTopo + folga, zmin = zBase - folga;
@@ -2594,15 +2703,32 @@ const WebGeo = (() => {
         + `<text x="${n1(X(s))}" y="${mT + ph - 5}" font-size="9.5" text-anchor="middle" fill="currentColor" fill-opacity=".6">muda de direção</text>`;
     });
 
-    // camadas iguais ligadas entre sondagens vizinhas (interpretação automática)
+    // preenchimento entre sondagens vizinhas: liga as camadas parecidas e afina as que não têm par (interpretação automática)
     const comLito = cols.map((c, i) => i).filter(i => cols[i].camadas.length);   // pula as sondagens sem litologia
+    let defs = '', temVazio = false;
     if (st.secao.ligar) for (let q = 0; q + 1 < comLito.length; q++) {
-      const i = comLito[q], j = comLito[q + 1], a = cols[i], b = cols[j];
-      WGSecao.correlacionar(a.camadas, b.camadas).forEach(([ia, ib]) => {
-        const ca = a.camadas[ia], cb = b.camadas[ib], x1 = xd[i] + COL / 2, x2 = xd[j] - COL / 2;
-        g += `<polygon points="${n1(x1)},${n1(Y(a.cota - ca.de))} ${n1(x2)},${n1(Y(b.cota - cb.de))} ${n1(x2)},${n1(Y(b.cota - cb.ate))} ${n1(x1)},${n1(Y(a.cota - ca.ate))}" fill="${esc(ca.hex)}" fill-opacity=".42" stroke="${esc(ca.hex)}" stroke-opacity=".9" stroke-width=".8"/>`;
+      const i = comLito[q], j = comLito[q + 1], a = cols[i], b = cols[j], x1 = xd[i], x2 = xd[j];   // até o eixo: a coluna é desenhada por cima
+      const P = WGSecao.preencher(a.camadas, b.camadas, a.cota, b.cota);
+      const ponto = (k, prof) => `${n1(x1 + (x2 - x1) * P.s[k])},${n1(Y(a.cota + (b.cota - a.cota) * P.s[k] - prof))}`;
+      const nome = c => c.vazio ? 'trecho sem descrição' : [c.lit, c.cor].filter(Boolean).join(', ');
+      P.faixas.forEach((f, k) => {
+        const ca = f.ia != null ? P.a[f.ia] : null, cb = f.ib != null ? P.b[f.ib] : null;
+        if (!f.base.some((z, w) => z - f.topo[w] > 1e-4)) return;
+        if ((ca || cb).vazio) temVazio = true;
+        let cor = esc((ca || cb).hex);
+        if (ca && cb && ca.hex !== cb.hex) {                      // mesma camada com cores diferentes: passa de uma para a outra
+          const id = `sg${i}_${k}`;
+          defs += `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${n1(x1)}" x2="${n1(x2)}" y1="0" y2="0"><stop offset="0" stop-color="${esc(ca.hex)}"/><stop offset="1" stop-color="${esc(cb.hex)}"/></linearGradient>`;
+          cor = `url(#${id})`;
+        }
+        const d = 'M' + P.s.map((_, w) => ponto(w, f.topo[w])).join(' L') + ' L' + P.s.map((_, w) => ponto(P.s.length - 1 - w, f.base[P.s.length - 1 - w])).join(' L') + ' Z';
+        const dica = ca && cb ? `${nome(ca)} (${a.nome})  ↔  ${nome(cb)} (${b.nome})`
+          : f.abaixo ? `${nome(ca || cb)} (${(ca ? a : b).nome}): abaixo do fim de ${(ca ? b : a).nome}, que é mais rasa`
+          : ca ? `${nome(ca)} (${a.nome}): não aparece em ${b.nome}, acaba no caminho` : `${nome(cb)} (${b.nome}): não aparece em ${a.nome}, acaba no caminho`;
+        g += `<path class="secao-faixa" d="${d}" fill="${cor}" fill-opacity=".8" stroke="#172621" stroke-opacity=".45" stroke-width=".7" stroke-linejoin="round"><title>${esc(dica)}\nInterpretação automática entre as sondagens</title></path>`;
       });
     }
+    if (defs) g = `<defs>${defs}</defs>` + g;
 
     // terreno (cota do topo de cada ponto)
     const terreno = [[mL, Y(cols[0].cota)], ...cols.map((c, i) => [xd[i], Y(c.cota)]), [W - mR, Y(cols[cols.length - 1].cota)]];
@@ -2663,6 +2789,7 @@ const WebGeo = (() => {
     leg += item('<i class="leg-terreno"></i>', 'Terreno (cota do topo)');
     if (cols.some(c => c.tubo.length)) leg += item('<i class="leg-tubo"></i>', 'Tubo liso') + item('<i class="leg-tubo leg-filtro"></i>', 'Filtro');
     redes.forEach((r, k) => { leg += `<span><svg width="26" height="8"><line x1="0" x2="26" y1="4" y2="4" stroke="#1565A8" stroke-width="1.6" stroke-dasharray="${TRACOS[k % TRACOS.length]}"/></svg>${esc("Nível d'água" + (r !== '-' ? ' · ' + r : ''))}</span>`; });
+    if (temVazio) leg += item('<i class="leg-lito" style="background:#E4E7E5"></i>', 'Trecho sem descrição');
     if (cols.some(c => !c.camadas.length)) leg += item('<i class="leg-semlito"></i>', 'Sem litologia cadastrada');
     $('#secao-legenda').innerHTML = leg;
     const camp = st.campanhas.find(c => c.id === st.campanhaId);
@@ -2673,7 +2800,7 @@ const WebGeo = (() => {
     if (cols.some(c => c.naFonte === 'campanha') && camp) notas.push(`N.A. da campanha ${camp.codigo}`);
     if (d.semDatum) notas.push('nenhum poço tem cota: o desenho está em profundidade, com todos os topos no mesmo nível');
     else if (cols.some(c => c.cotaEstimada)) notas.push('* sem cota cadastrada: usada a cota do poço mais próximo');
-    if (st.secao.ligar && cols.some(c => c.camadas.length)) notas.push('a ligação entre camadas é automática (mesmo nome de camada) e precisa de conferência');
+    if (st.secao.ligar && comLito.length > 1) notas.push('o preenchimento entre as sondagens é uma interpretação automática (liga camadas parecidas e afina as que não têm par) e precisa de conferência');
     $('#secao-nota').textContent = notas.join(' · ') + '. Passe o mouse sobre uma sondagem para ver os detalhes.';
     $('#secao-hint').textContent = `${cols.length} ponto(s) · ${fmt(d.comp, 0)} m`;
   }
