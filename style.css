@@ -596,3 +596,11 @@
     table.dtbl th,table.dtbl td{white-space:normal;padding:4px 6px;}
     .tbl-wrap{overflow:visible;}
   }
+
+  /* criar usuário / trocar senha */
+  .equipe-senha-linha{display:flex;gap:6px;align-items:center;}
+  .equipe-senha-linha input{flex:1;min-width:0;font-family:var(--font-mono);}
+  .equipe-form .field.equipe-senha{flex:1 1 200px;}
+  .equipe-criado{padding:10px 14px;border-radius:var(--radius-m);background:var(--accent-tint);font-size:13px;line-height:1.5;}
+  .equipe-criado code{font-family:var(--font-mono);font-size:13px;background:var(--surface);padding:1px 6px;border-radius:4px;user-select:all;}
+  .rail-user-acoes{display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex:none;}

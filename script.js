@@ -1630,9 +1630,16 @@ const WebGeo = (() => {
       if (e.key !== 'Escape') return;
       if (!$('#modal-excluir').hidden) fecharExcluir();
       if (!$('#modal-relatorio').hidden) fecharRelatorio();
+      if (!$('#modal-senha').hidden) fecharSenha();
     });
     // equipe
     $('#equipe-form').addEventListener('submit', adicionarPessoa);
+    $('#equipe-gerar').addEventListener('click', () => { $('#equipe-senha').value = gerarSenha(); });
+    $('#equipe-form').addEventListener('input', () => { $('#equipe-erro').hidden = true; });
+    $('#btn-senha').addEventListener('click', abrirSenha);
+    $('#senha-fechar').addEventListener('click', fecharSenha);
+    $('#senha-cancelar').addEventListener('click', fecharSenha);
+    $('#senha-form').addEventListener('submit', salvarSenha);
     $('#equipe-tabela').addEventListener('change', e => { if (e.target.classList.contains('equipe-papel')) mudarPapel(e.target.closest('tr').dataset.id, e.target.value); });
     $('#equipe-tabela').addEventListener('click', e => { if (e.target.classList.contains('equipe-remover')) removerPessoa(e.target.closest('tr').dataset.id); });
     // relatório
@@ -2951,18 +2958,73 @@ const WebGeo = (() => {
     }).join('') || '<tr><td colspan="5" class="muted">Ninguém na equipe.</td></tr>';
   }
 
+  /** Senha provisória fácil de ditar: sem letras parecidas (l, 1, O, 0). */
+  function gerarSenha() {
+    const c = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const v = new Uint32Array(10); crypto.getRandomValues(v);
+    return [...v].map(x => c[x % c.length]).join('');
+  }
+
+  /**
+   * Cria o usuário (nome, e-mail, senha provisória) e já coloca na empresa com o papel escolhido.
+   * O cadastro é feito por um cliente separado, que não mexe na sessão de quem está criando.
+   * Sem senha: só adiciona à equipe uma conta que já existe.
+   */
   async function adicionarPessoa(ev) {
     ev.preventDefault();
-    const email = $('#equipe-email').value.trim();
+    const nome = $('#equipe-nome').value.trim(), email = $('#equipe-email').value.trim().toLowerCase();
+    const senha = $('#equipe-senha').value, papel = $('#equipe-papel-novo').value;
     if (!email) return;
-    const btn = $('#equipe-adicionar'); btn.disabled = true;
-    const { error } = await sb.rpc('wg_adicionar_pessoa', { p_email: email, p_papel: $('#equipe-papel-novo').value });
+    const erro = msg => { $('#equipe-erro').textContent = msg; $('#equipe-erro').hidden = false; };
+    $('#equipe-erro').hidden = true; $('#equipe-criado').hidden = true;
+    if (senha && senha.length < 6) { erro('A senha precisa ter pelo menos 6 caracteres.'); return; }
+    const btn = $('#equipe-adicionar'); btn.disabled = true; btn.textContent = 'Criando...';
+    let criado = false, precisaConfirmar = false;
+    try {
+      if (senha) {
+        const aux = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
+          { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'webgeo-criar-usuario' } });
+        const r = await aux.auth.signUp({ email, password: senha, options: { data: { full_name: nome } } });
+        if (r.error && !/already registered/i.test(r.error.message)) {
+          erro(/at least/i.test(r.error.message) ? 'A senha precisa ter pelo menos 6 caracteres.'
+            : /validate email|invalid/i.test(r.error.message) ? 'Digite um e-mail válido.'
+            : /rate limit|too many/i.test(r.error.message) ? 'O Supabase limitou a criação de contas por agora (limite de e-mails por hora). Tente de novo mais tarde.'
+            : 'Não foi possível criar a conta: ' + r.error.message);
+          return;
+        }
+        criado = !r.error && !!r.data?.user && (r.data.user.identities?.length ?? 1) > 0;  // identities vazio = e-mail já tinha conta
+        precisaConfirmar = criado && !r.data.session;
+      }
+      const { error } = await sb.rpc('wg_adicionar_pessoa', { p_email: email, p_papel: papel });
+      if (error) { erro(error.message); return; }
+      const qual = papel === 'admin' ? 'Administrador' : 'Técnico';
+      $('#equipe-criado').innerHTML = criado
+        ? `<b>Usuário criado como ${qual}.</b> Passe para a pessoa: e-mail <code>${esc(email)}</code> e senha provisória <code>${esc(senha)}</code>.
+           ${precisaConfirmar ? '<br>O Supabase está pedindo confirmação de e-mail: a pessoa precisa clicar no link que chegou no e-mail dela antes do primeiro acesso.' : ''}`
+        : `<b>${esc(email)}</b> entrou na equipe como ${qual}${senha ? '. Essa pessoa já tinha conta, então a senha dela continua a mesma de antes.' : '.'}`;
+      $('#equipe-criado').hidden = false;
+      $('#equipe-nome').value = ''; $('#equipe-email').value = ''; $('#equipe-senha').value = ''; $('#equipe-papel-novo').value = 'tecnico';
+      carregarEquipe();
+    } finally {
+      btn.disabled = false; btn.textContent = 'Criar usuário';
+    }
+  }
+
+  // ------------------------------------------------------------- trocar a própria senha
+  function abrirSenha() { $('#senha-form').reset(); $('#senha-erro').hidden = true; $('#modal-senha').hidden = false; $('#senha-nova').focus(); }
+  function fecharSenha() { $('#modal-senha').hidden = true; }
+  async function salvarSenha(ev) {
+    ev.preventDefault();
+    const a = $('#senha-nova').value, b = $('#senha-conf').value;
+    const erro = m => { $('#senha-erro').textContent = m; $('#senha-erro').hidden = false; };
+    if (a.length < 6) { erro('A senha precisa ter pelo menos 6 caracteres.'); return; }
+    if (a !== b) { erro('As duas senhas estão diferentes.'); return; }
+    const btn = $('#senha-salvar'); btn.disabled = true;
+    const { error } = await sb.auth.updateUser({ password: a });
     btn.disabled = false;
-    $('#equipe-erro').hidden = !error;
-    if (error) { $('#equipe-erro').textContent = error.message; return; }
-    $('#equipe-email').value = '';
-    toast(`${email} agora faz parte da equipe.`);
-    carregarEquipe();
+    if (error) { erro(/different from the old/i.test(error.message) ? 'A nova senha precisa ser diferente da atual.' : 'Não foi possível trocar a senha: ' + error.message); return; }
+    fecharSenha();
+    toast('Senha trocada.');
   }
 
   async function mudarPapel(id, papel) {

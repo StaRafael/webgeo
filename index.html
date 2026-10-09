@@ -65,7 +65,10 @@
         <div class="rail-user-email" id="rail-user-email">—</div>
         <div class="rail-user-papel" id="rail-user-papel"></div>
       </div>
-      <button type="button" class="rail-user-logout" id="btn-logout" title="Sair">Sair</button>
+      <div class="rail-user-acoes">
+        <button type="button" class="rail-user-logout" id="btn-senha" title="Trocar a minha senha">Trocar senha</button>
+        <button type="button" class="rail-user-logout" id="btn-logout" title="Sair">Sair</button>
+      </div>
     </div>
 
     <div class="rail-stats">
@@ -344,12 +347,18 @@
         <div class="section-head"><span class="section-num">5</span><h2>Equipe</h2><span class="hint">quem acessa os dados da empresa</span></div>
         <div class="section-body equipe-corpo">
           <p class="imp-texto"><b>Administrador</b> faz tudo, inclusive excluir projetos e campanhas e cuidar da equipe. <b>Técnico</b> vê os dados, importa planilhas, insere plantas e traça seções.</p>
-          <form id="equipe-form" class="equipe-form">
-            <div class="field"><label for="equipe-email">E-mail da pessoa</label><input type="email" id="equipe-email" required placeholder="nome@empresa.com.br" autocomplete="off"></div>
+          <form id="equipe-form" class="equipe-form" autocomplete="off">
+            <div class="field"><label for="equipe-nome">Nome</label><input type="text" id="equipe-nome" placeholder="Nome e sobrenome" autocomplete="off"></div>
+            <div class="field"><label for="equipe-email">E-mail</label><input type="email" id="equipe-email" required placeholder="nome@empresa.com.br" autocomplete="off"></div>
+            <div class="field equipe-senha">
+              <label for="equipe-senha">Senha provisória</label>
+              <div class="equipe-senha-linha"><input type="text" id="equipe-senha" minlength="6" placeholder="mínimo 6 caracteres" autocomplete="new-password"><button type="button" class="btn-mini" id="equipe-gerar">Gerar</button></div>
+            </div>
             <div class="field"><label for="equipe-papel-novo">Papel</label><select id="equipe-papel-novo"><option value="tecnico">Técnico</option><option value="admin">Administrador</option></select></div>
-            <button type="submit" class="btn btn-primary" id="equipe-adicionar">Adicionar à equipe</button>
+            <button type="submit" class="btn btn-primary" id="equipe-adicionar">Criar usuário</button>
           </form>
-          <p class="equipe-dica">A pessoa precisa criar a conta antes, na tela de entrada do Perfil de Sondagem ("Criar conta"). Depois é só adicionar pelo e-mail.</p>
+          <p class="equipe-dica">Passe o e-mail e a senha provisória para a pessoa; ela troca a senha depois em "Trocar senha", no menu. Se a pessoa já tem conta (criou no Perfil de Sondagem), deixe a senha em branco: ela só é adicionada à equipe.</p>
+          <div class="equipe-criado" id="equipe-criado" hidden></div>
           <div class="auth-error" id="equipe-erro" hidden></div>
           <div class="tbl-wrap">
             <table class="dtbl" id="equipe-tabela">
@@ -416,6 +425,23 @@
         <button type="button" class="btn btn-primary" id="planta-confirmar" disabled>Inserir no mapa</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Trocar a própria senha -->
+<div class="modal-fundo" id="modal-senha" hidden>
+  <div class="modal-caixa" role="dialog" aria-modal="true" aria-labelledby="modal-senha-tit">
+    <div class="modal-cab"><span id="modal-senha-tit">Trocar a minha senha</span>
+      <button type="button" class="modal-fechar" id="senha-fechar" aria-label="Fechar">✕</button></div>
+    <form class="modal-corpo" id="senha-form">
+      <div class="field"><label for="senha-nova">Nova senha</label><input type="password" id="senha-nova" minlength="6" required autocomplete="new-password"></div>
+      <div class="field"><label for="senha-conf">Repita a nova senha</label><input type="password" id="senha-conf" minlength="6" required autocomplete="new-password"></div>
+      <div class="auth-error" id="senha-erro" hidden></div>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-ghost" id="senha-cancelar">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="senha-salvar">Salvar senha</button>
+      </div>
+    </form>
   </div>
 </div>
 
