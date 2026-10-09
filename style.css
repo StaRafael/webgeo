@@ -524,3 +524,75 @@
     .kpi-num{font-size:21px;}
     .rail-filtros{grid-template-columns:1fr;}
   }
+
+  /* ============ PAPÉIS E EQUIPE ============ */
+  .rail-user-papel{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-ink);margin-top:2px;}
+  .rail-user-papel:empty{display:none;}
+  .equipe-corpo{padding:16px 18px;display:flex;flex-direction:column;gap:12px;}
+  .equipe-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;}
+  .equipe-form .field{margin:0;min-width:0;}
+  .equipe-form .field:first-child{flex:1 1 260px;}
+  .equipe-dica{margin:0;font-size:12.5px;color:var(--ink-soft);}
+  #equipe-tabela select{font:inherit;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);}
+
+  /* ============ CONFERÊNCIA DA IMPORTAÇÃO ============ */
+  .imp-conferencia{margin:14px 0;display:flex;flex-direction:column;gap:8px;}
+  .imp-conferencia h4{margin:0;font-size:13.5px;}
+  .conf-ok{margin:0;color:var(--accent-ink);font-size:13px;}
+  .conf-substitui{margin:0;padding:8px 12px;border-radius:var(--radius-m);background:var(--accent-tint);font-size:13px;}
+  .conf-marca{display:inline-block;width:10px;height:10px;border-radius:50%;background:#F29E2E;}
+  .conf-alto .conf-marca{background:var(--danger);}
+  .conf-tabela td{vertical-align:top;}
+  .conf-ciente{font-size:13px;}
+
+  /* ============ RELATÓRIO (impressão / PDF) ============ */
+  .so-relatorio{display:none;}
+  .rel-opcoes{display:flex;flex-direction:column;gap:8px;margin:10px 0;}
+  body.modo-relatorio .so-relatorio{display:block;}
+  body.modo-relatorio #mapa{width:180mm;height:125mm;margin:0 auto;}
+  body.modo-relatorio .secao-desenho{overflow:visible;}
+  .rel-cab{margin:0 0 10px;}
+  .rel-marca{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#2F6F5A;}
+  .rel-cab h1{margin:2px 0 8px;font-size:20px;}
+  .rel-ficha{width:100%;border-collapse:collapse;font-size:11px;}
+  .rel-ficha th,.rel-ficha td{border:1px solid #C9D3CE;padding:4px 6px;text-align:left;vertical-align:top;}
+  .rel-ficha th{background:#EEF3F0;width:16%;font-weight:600;}
+  .rel-bloco h2{font-size:15px;margin:14px 0 6px;}
+  .rel-texto{font-size:11px;margin:0 0 6px;}
+  .rel-tabela{width:100%;border-collapse:collapse;font-size:9.5px;margin:0 0 10px;break-inside:auto;}
+  .rel-tabela th,.rel-tabela td{border:1px solid #C9D3CE;padding:3px 5px;}
+  .rel-tabela th{background:#EEF3F0;font-weight:600;vertical-align:bottom;}
+  .rel-tabela th small{display:block;font-weight:400;color:#56655D;}
+  .rel-tabela tr{break-inside:avoid;}
+  .rel-tabela .cod{font-family:var(--font-mono);font-weight:600;white-space:nowrap;}
+  .rel-acima,.rel-acima-txt{color:#B42318;font-weight:700;}
+  .rel-lq{color:#56655D;}
+  #rel-notas ul{margin:0;padding-left:18px;font-size:10.5px;line-height:1.45;}
+
+  @media print{
+    @page{size:A4 portrait;margin:12mm;}
+    html,body{background:#fff !important;}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    .rail,.topbar,.aviso-geral,.modal-fundo,#toast,.ajuste-barra,.secao-acoes,.leaflet-control-zoom,
+    #view-dados,#view-importar,#view-equipe,.legenda-nota > span:first-child{display:none !important;}
+    #app{display:block;}
+    main.sheet{padding:0;}
+    .kpis{margin:0 0 8px;gap:6px;}
+    .kpi{box-shadow:none;padding:6px 8px;}
+    .kpi-num{font-size:18px;}
+    .section{margin:0 0 10px;box-shadow:none;break-inside:avoid;}
+    .section-head{padding:6px 10px;}
+    .section-head .hint{display:none;}
+    .legenda{padding:6px 10px 2px;font-size:10px;}
+    .graficos{break-inside:avoid;}
+    #sec-pluma{break-before:page;}
+    #rel-tabela{break-before:page;}
+    body.rel-sem-mapa #sec-mapa,body.rel-sem-mapa .kpis:not(.kpis-pluma),
+    body.rel-sem-secao #sec-secao,body.rel-sem-pluma #sec-pluma{display:none !important;}
+    .secao-desenho{padding:4px;}
+    main.sheet > .note{display:none !important;}
+    #rel-notas{break-inside:avoid;}
+    table.dtbl{min-width:0;font-size:9.5px;}
+    table.dtbl th,table.dtbl td{white-space:normal;padding:4px 6px;}
+    .tbl-wrap{overflow:visible;}
+  }

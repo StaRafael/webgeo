@@ -14,7 +14,10 @@ Portal de monitoramento ambiental de poços (PM/PMN), irmão do **Perfil de Sond
 - **Popup do poço:** perfil litológico e construtivo, vindo da ficha do Perfil.
 - **Projetos:** os mesmos do Perfil; dá para criar e excluir pelo menu.
 - **Mapa potenciométrico:** curvas equipotenciais e setas de fluxo da campanha, a partir da cota do topo e do N.A.
-- **Seção geológica:** corte vertical A–A' traçado no mapa, com a litologia das fichas do Perfil, filtros, nível d'água e ligação das camadas iguais.
+- **Seção geológica:** corte vertical A–A' traçado no mapa, com a litologia das fichas do Perfil, filtros, nível d'água e preenchimento das camadas entre as sondagens.
+- **Relatório em PDF:** resumo, mapa, seção, evolução da pluma e tabela de resultados comparada com a CETESB.
+- **Papéis e equipe:** administrador e técnico; o administrador cuida da equipe pela tela Equipe.
+- **Conferência da importação:** alerta valores fora do histórico antes de gravar.
 - **Planta em DXF:** a planta do projeto por cima do satélite, com camadas, cor e ajuste de posição por pontos.
 
 ## Como a pluma é calculada

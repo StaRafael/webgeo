@@ -1339,7 +1339,129 @@ const WGSecao = (() => {
   return { comprimento, vertices, projetar, chaveLit, correlacionar, classeLit, semelhanca, completar, alinhar, preencher, espalhar, passoBonito, exageroAuto };
 })();
 
-if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf, WGPot, WGSecao };
+/* =====================================================================
+   3d. REVISÃO DA IMPORTAÇÃO (funções puras, sem tela)
+   Antes de gravar, compara a planilha com o histórico do projeto e aponta
+   o que merece conferência: valores muito fora do histórico, primeira vez
+   acima do VI, possível erro de unidade, N.A. e cota que mudaram muito.
+   ===================================================================== */
+const WGRevisao = (() => {
+  const K = s => String(s ?? '').trim().toUpperCase().replace(/\s+/g, '');
+  const num = v => (v === null || v === undefined || v === '' || !Number.isFinite(+v)) ? null : +v;
+  const f = (v, c = 4) => v === null || v === undefined ? '-' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: c });
+  const vezes = x => x >= 100 ? f(Math.round(x), 0) : f(x, 1);
+
+  /**
+   * payload: o que a planilha vai gravar (resultados, campo, pocos, campanha).
+   * hist: o que o projeto já tem, por código:
+   *   { resultados: [{poco, parametro, campanha, data, valor, menor_que_lq, lq}],
+   *     medicoes:   [{poco, campanha, data, nivel_agua}],
+   *     pocos:      [{codigo, cota_topo, latitude, longitude, profundidade}],
+   *     campanhas:  [{codigo, data_inicio}] }
+   * parametros: [{nome, valor_orientador, unidade}]
+   * Devolve { alertas: [{nivel: 'alto'|'medio', poco, item, antes, agora, motivo}], substitui: {campanha, resultados} | null }
+   */
+  function conferir(payload, hist, parametros) {
+    hist = hist || { resultados: [], medicoes: [], pocos: [], campanhas: [] };
+    const alertas = [];
+    const camp = payload.campanha ? K(payload.campanha.codigo) : null;
+    const VI = new Map((parametros || []).map(p => [K(p.nome), { vi: num(p.valor_orientador), un: p.unidade || 'µg/L' }]));
+    (payload.parametros || []).forEach(p => { if (!VI.has(K(p.nome))) VI.set(K(p.nome), { vi: num(p.valor_orientador), un: p.unidade || 'µg/L' }); });
+    const dataCamp = new Map((hist.campanhas || []).map(c => [K(c.codigo), String(c.data_inicio || '')]));
+    // compara só com campanhas ANTERIORES à da planilha (reimportar uma campanha antiga não compara com as mais novas)
+    const dataNova = payload.campanha?.data_inicio ? String(payload.campanha.data_inicio).slice(0, 10) : '';
+    const dataDe = r => String(dataCamp.get(K(r.campanha)) || r.data || '').slice(0, 10);
+    const outras = r => K(r.campanha) !== camp && (!dataNova || !dataDe(r) || dataDe(r) < dataNova);
+
+    // resultados do laboratório
+    const porChave = new Map();
+    (hist.resultados || []).filter(outras).forEach(r => {
+      const k = K(r.poco) + '|' + K(r.parametro);
+      if (!porChave.has(k)) porChave.set(k, []);
+      porChave.get(k).push(r);
+    });
+    (payload.resultados || []).forEach(r => {
+      const p = VI.get(K(r.parametro)) || { vi: null, un: '' }, vi = p.vi, un = p.un;
+      const ant = (porChave.get(K(r.poco) + '|' + K(r.parametro)) || [])
+        .sort((a, b) => String(a.data || dataCamp.get(K(a.campanha)) || '').localeCompare(String(b.data || dataCamp.get(K(b.campanha)) || '')));
+      const quant = ant.filter(a => !a.menor_que_lq && num(a.valor) !== null);
+      const maior = quant.reduce((m, a) => (!m || +a.valor > +m.valor) ? a : m, null);
+      const item = `${r.parametro}${un ? ` (${un})` : ''}`;
+      const agora = r.menor_que_lq ? (num(r.lq) !== null ? `< ${f(r.lq)}` : '< LQ') : f(r.valor);
+      const v = r.menor_que_lq ? null : num(r.valor);
+      if (v !== null && vi && v >= 100 * vi) {
+        alertas.push({ nivel: 'alto', poco: r.poco, item, antes: maior ? `${f(maior.valor)} (${maior.campanha})` : '-', agora,
+          motivo: `${vezes(v / vi)} vezes o valor orientador (${f(vi)}). Confira o laudo e a unidade (µg/L × mg/L).` });
+        return;
+      }
+      if (v !== null && maior && +maior.valor > 0 && v >= 10 * +maior.valor && (!vi || v >= vi)) {
+        alertas.push({ nivel: 'alto', poco: r.poco, item, antes: `${f(maior.valor)} (${maior.campanha})`, agora,
+          motivo: `${vezes(v / +maior.valor)} vezes o maior valor que este poço já teve.` });
+        return;
+      }
+      if (v !== null && vi && v >= vi && ant.length && !quant.some(a => +a.valor >= vi)) {
+        alertas.push({ nivel: 'medio', poco: r.poco, item, antes: maior ? `${f(maior.valor)} (${maior.campanha})` : 'abaixo do LQ', agora,
+          motivo: `Primeira vez acima do valor orientador (${f(vi)}) em ${ant.length} campanha(s).` });
+        return;
+      }
+      const ultimo = ant[ant.length - 1];
+      if (r.menor_que_lq && vi && ultimo && !ultimo.menor_que_lq && num(ultimo.valor) >= 10 * vi) {
+        alertas.push({ nivel: 'medio', poco: r.poco, item, antes: `${f(ultimo.valor)} (${ultimo.campanha})`, agora,
+          motivo: 'Caiu de muito acima do valor orientador para abaixo do LQ de uma campanha para a outra.' });
+      }
+    });
+
+    // nível d'água
+    const pocoHist = new Map((hist.pocos || []).map(p => [K(p.codigo), p]));
+    const pocoNovo = new Map((payload.pocos || []).map(p => [K(p.codigo), p]));
+    const medAnt = new Map();
+    (hist.medicoes || []).filter(outras).forEach(m => {
+      const k = K(m.poco), d = String(m.data || dataCamp.get(K(m.campanha)) || '');
+      if (num(m.nivel_agua) === null) return;
+      if (!medAnt.has(k) || d > medAnt.get(k).d) medAnt.set(k, { ...m, d });
+    });
+    (payload.campo || []).forEach(c => {
+      const na = num(c.nivel_agua); if (na === null) return;
+      const prof = num(pocoNovo.get(K(c.poco))?.profundidade) ?? num(pocoHist.get(K(c.poco))?.profundidade);
+      if (na < 0 || (prof && na > prof)) {
+        alertas.push({ nivel: 'alto', poco: c.poco, item: "N.A. (m)", antes: prof ? `profundidade ${f(prof, 2)}` : '-', agora: f(na, 2),
+          motivo: na < 0 ? 'N.A. negativo.' : 'N.A. mais fundo que o próprio poço.' });
+        return;
+      }
+      const a = medAnt.get(K(c.poco));
+      if (a && Math.abs(na - +a.nivel_agua) > 2) {
+        alertas.push({ nivel: 'medio', poco: c.poco, item: "N.A. (m)", antes: `${f(a.nivel_agua, 2)} (${a.campanha})`, agora: f(na, 2),
+          motivo: `Mudou ${f(Math.abs(na - +a.nivel_agua), 2)} m desde a última medição.` });
+      }
+    });
+
+    // cota e coordenada do poço
+    (payload.pocos || []).forEach(p => {
+      const h = pocoHist.get(K(p.codigo)); if (!h) return;
+      const c1 = num(h.cota_topo), c2 = num(p.cota_topo);
+      if (c1 !== null && c2 !== null && Math.abs(c1 - c2) > .5) {
+        alertas.push({ nivel: 'medio', poco: p.codigo, item: 'Cota do topo (m)', antes: f(c1, 3), agora: f(c2, 3),
+          motivo: `Mudou ${f(Math.abs(c1 - c2), 2)} m: muda a carga hidráulica e o potenciométrico.` });
+      }
+      const la1 = num(h.latitude), lo1 = num(h.longitude), la2 = num(p.latitude), lo2 = num(p.longitude);
+      if ([la1, lo1, la2, lo2].every(x => x !== null)) {
+        const d = Math.hypot((la2 - la1) * 110574, (lo2 - lo1) * 111320 * Math.cos(la1 * Math.PI / 180));
+        if (d > 10) alertas.push({ nivel: 'medio', poco: p.codigo, item: 'Coordenada', antes: `${f(la1, 6)}, ${f(lo1, 6)}`, agora: `${f(la2, 6)}, ${f(lo2, 6)}`,
+          motivo: `O poço mudou ${f(Math.round(d), 0)} m de lugar.` });
+      }
+    });
+
+    const ordem = { alto: 0, medio: 1 };
+    alertas.sort((a, b) => (ordem[a.nivel] - ordem[b.nivel]) || String(a.poco).localeCompare(String(b.poco), 'pt-BR', { numeric: true }));
+    const jaTinha = camp ? (hist.resultados || []).filter(r => K(r.campanha) === camp).length : 0;
+    const existia = camp && (hist.campanhas || []).some(c => K(c.codigo) === camp);
+    return { alertas, substitui: existia ? { campanha: payload.campanha.codigo, resultados: jaTinha } : null };
+  }
+
+  return { conferir };
+})();
+
+if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf, WGPot, WGSecao, WGRevisao };
 
 /* =====================================================================
    4. APLICAÇÃO (tela)
@@ -1365,6 +1487,7 @@ const WebGeo = (() => {
     perfis: new Map(),            // poco_id -> intervalos da aba Litologia (wg_perfil_poco)
     pluma: { ativa: true, limiar: null, p: 2, cel: 2 }, // limiar null = usa o VI do parâmetro
     calc: null,                   // resultado da última interpolação
+    excluindo: null,              // {tipo: 'projeto'|'campanha', id, nome} enquanto o aviso de exclusão está aberto
     pot: { ativa: false, rede: null, intervalo: 0, suav: 0, setas: true }, // rede null = escolhe sozinho; intervalo 0 = automático
     potCalc: null,                // superfície potenciométrica da campanha selecionada
     secao: { tracando: null, linha: null, faixa: 10, exag: 0, ligar: true }, // seção geológica A–A' (exag 0 = automático)
@@ -1433,6 +1556,7 @@ const WebGeo = (() => {
       $('#rail-user-email').textContent = st.user.email || '';
       $('#imp-empresa').textContent = st.org.name || 'sua empresa';
       showScreen('app');
+      aplicarPapel();
       if (!mapa) criarMapa();
       await carregarProjetos();
     } catch (e) {
@@ -1466,7 +1590,7 @@ const WebGeo = (() => {
       carregarProjeto();
     });
     $('#f-parametro').addEventListener('change', e => { st.parametroId = +e.target.value; st.pluma.limiar = null; render(); });
-    $('#f-campanha').addEventListener('change', e => { st.campanhaId = +e.target.value; render(); });
+    $('#f-campanha').addEventListener('change', e => { st.campanhaId = +e.target.value; aplicarPapel(); render(); });
     $('#btn-csv').addEventListener('click', exportarCSV);
 
     // Planta em DXF
@@ -1494,16 +1618,29 @@ const WebGeo = (() => {
     $('#ajuste-recomecar').addEventListener('click', () => { cancelarAjuste(false); iniciarAjuste(); });
 
     // Excluir projeto: só libera o botão quando o nome digitado é igual ao do projeto
-    $('#btn-excluir-projeto').addEventListener('click', abrirExcluirProjeto);
-    $('#excluir-cancelar').addEventListener('click', fecharExcluirProjeto);
-    $('#excluir-fechar').addEventListener('click', fecharExcluirProjeto);
-    $('#modal-excluir').addEventListener('click', e => { if (e.target.id === 'modal-excluir') fecharExcluirProjeto(); });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal-excluir').hidden) fecharExcluirProjeto(); });
-    $('#excluir-confirma').addEventListener('input', e => {
-      const proj = st.projetos.find(p => p.id === st.projetoId);
-      $('#excluir-confirmar').disabled = !proj || e.target.value.trim() !== proj.nome.trim();
+    $('#btn-excluir-projeto').addEventListener('click', () => abrirExcluir('projeto'));
+    $('#btn-excluir-campanha').addEventListener('click', () => abrirExcluir('campanha'));
+    $('#excluir-fechar').addEventListener('click', fecharExcluir);
+    $('#excluir-cancelar').addEventListener('click', fecharExcluir);
+    $('#modal-excluir').addEventListener('click', e => { if (e.target.id === 'modal-excluir') fecharExcluir(); });
+    $('#excluir-confirma').addEventListener('input', () => { $('#excluir-confirmar').disabled = !confirmouExclusao(); });
+    $('#excluir-confirma').addEventListener('keydown', e => { if (e.key === 'Enter' && confirmouExclusao()) excluirConfirmado(); });
+    $('#excluir-confirmar').addEventListener('click', excluirConfirmado);
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape') return;
+      if (!$('#modal-excluir').hidden) fecharExcluir();
+      if (!$('#modal-relatorio').hidden) fecharRelatorio();
     });
-    $('#excluir-confirmar').addEventListener('click', excluirProjeto);
+    // equipe
+    $('#equipe-form').addEventListener('submit', adicionarPessoa);
+    $('#equipe-tabela').addEventListener('change', e => { if (e.target.classList.contains('equipe-papel')) mudarPapel(e.target.closest('tr').dataset.id, e.target.value); });
+    $('#equipe-tabela').addEventListener('click', e => { if (e.target.classList.contains('equipe-remover')) removerPessoa(e.target.closest('tr').dataset.id); });
+    // relatório
+    $('#btn-relatorio').addEventListener('click', abrirRelatorio);
+    $('#rel-fechar').addEventListener('click', fecharRelatorio);
+    $('#rel-cancelar').addEventListener('click', fecharRelatorio);
+    $('#rel-gerar').addEventListener('click', gerarRelatorio);
+    window.addEventListener('afterprint', () => setTimeout(encerrarRelatorio, 100));
     $('#f-pluma').addEventListener('change', e => { st.pluma.ativa = e.target.checked; render(); });
     $('#f-idw').addEventListener('change', e => { st.pluma.p = +e.target.value; render(); });
     $('#f-celula').addEventListener('change', e => { st.pluma.cel = +e.target.value; render(); });
@@ -1542,6 +1679,7 @@ const WebGeo = (() => {
   function trocarView(v) {
     document.querySelectorAll('.rail-nav [data-view]').forEach(b => b.classList.toggle('is-active', b.dataset.view === v));
     document.querySelectorAll('.view').forEach(s => { s.hidden = s.id !== 'view-' + v; });
+    if (v === 'equipe') carregarEquipe();
     if (v === 'visao' && mapa) setTimeout(() => {
       mapa.invalidateSize();
       if (st.enquadrarPendente) enquadrarMapa();
@@ -1598,7 +1736,7 @@ const WebGeo = (() => {
       ? st.projetos.map(p => `<option value="${esc(p.id)}">${esc(p.nome)}</option>`).join('')
       : '<option value="">(nenhum projeto)</option>') + '<option value="__novo__">+ Novo projeto…</option>';
     $('#f-projeto').value = st.projetoId || '';
-    $('#btn-excluir-projeto').hidden = !st.projetoId;
+    aplicarPapel();
   }
 
   /** Cria um projeto (na mesma tabela do Perfil — ele aparece lá também). */
@@ -1873,47 +2011,6 @@ const WebGeo = (() => {
 
   // ------------------------------------------------------------- excluir projeto
   /** Abre a confirmação: mostra o que será apagado e exige digitar o nome do projeto. */
-  function abrirExcluirProjeto() {
-    const proj = st.projetos.find(p => p.id === st.projetoId);
-    if (!proj) return;
-    const pocos = st.pocos.filter(p => !p.virtual).length, n = (x, um, varios) => `${x} ${x === 1 ? um : varios}`;
-    const itens = [];
-    if (pocos) itens.push(`${n(pocos, 'poço', 'poços')} cadastrados no WebGeo`);
-    if (st.campanhas.length) itens.push(`${n(st.campanhas.length, 'campanha', 'campanhas')} e ${n(st.resultados.length, 'resultado', 'resultados')} de laboratório`);
-    if (st.medicoes.length) itens.push(`${n(st.medicoes.length, 'medição', 'medições')} de nível d'água`);
-    if (st.planta) itens.push(`A planta "${st.planta.nome}"`);
-    if (!itens.length) itens.push('Este projeto não tem dados no WebGeo.');
-    if (st.totalFichas) itens.push(`${n(st.totalFichas, 'ficha do Perfil fica', 'fichas do Perfil ficam')} sem projeto (não ${st.totalFichas === 1 ? 'é apagada' : 'são apagadas'})`);
-    $('#excluir-nome').textContent = proj.nome;
-    $('#excluir-lista').innerHTML = itens.map(i => `<li>${esc(i)}</li>`).join('');
-    $('#excluir-confirma').value = '';
-    $('#excluir-confirmar').disabled = true;
-    $('#excluir-erro').hidden = true;
-    $('#modal-excluir').hidden = false;
-    $('#excluir-confirma').focus();
-  }
-  function fecharExcluirProjeto() { $('#modal-excluir').hidden = true; }
-
-  async function excluirProjeto() {
-    const proj = st.projetos.find(p => p.id === st.projetoId);
-    if (!proj || $('#excluir-confirma').value.trim() !== proj.nome.trim()) return;
-    const btn = $('#excluir-confirmar'); btn.disabled = true; btn.textContent = 'Excluindo...';
-    // Apagar o projeto apaga junto (no banco) os poços, campanhas e resultados dele.
-    // .select() devolve a linha apagada: se voltar vazio, o banco não deixou apagar.
-    const { data, error } = await sb.from('projetos').delete().eq('id', proj.id).select();
-    btn.textContent = 'Excluir projeto';
-    if (error || !data || !data.length) {
-      console.error(error);
-      $('#excluir-erro').textContent = 'Não foi possível excluir: ' + (error?.message || 'o banco não permitiu (projeto de outra empresa ou já excluído).');
-      $('#excluir-erro').hidden = false; btn.disabled = false;
-      return;
-    }
-    fecharExcluirProjeto();
-    toast(`Projeto "${proj.nome}" excluído.`);
-    st.projetoId = null; st.campanhaId = null; st.parametroId = null; st.popupAberto = null; lembrarProjeto('');
-    await carregarProjetos();
-  }
-
   /**
    * Carrega tudo de um projeto: poços, campanhas, resultados e as FICHAS do
    * Perfil de Sondagem do mesmo projeto. Toda ficha com coordenada aparece no
@@ -2048,6 +2145,7 @@ const WebGeo = (() => {
 
   function render(enquadrar = false) {
     if (!sb) return;
+    if (st.profile) aplicarPapel();
     const projeto = st.projetos.find(p => p.id === st.projetoId);
     const param = st.parametros.find(p => p.id === st.parametroId);
     const camp = st.campanhas.find(c => c.id === st.campanhaId);
@@ -2821,6 +2919,294 @@ const WebGeo = (() => {
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
+  // ------------------------------------------------------------- papéis e equipe
+  const ehAdmin = () => st.profile?.role === 'admin';
+  const NOME_PAPEL = { admin: 'Administrador', tecnico: 'Técnico' };
+
+  /** Mostra ou esconde o que só o administrador pode fazer. */
+  function aplicarPapel() {
+    const adm = ehAdmin();
+    $('#rail-user-papel').textContent = NOME_PAPEL[st.profile?.role] || '';
+    $('#nav-equipe').hidden = !adm;
+    $('#btn-excluir-projeto').hidden = !adm || !st.projetoId;
+    $('#btn-excluir-campanha').hidden = !adm || !st.campanhaId;
+    if (!adm && !$('#view-equipe').hidden) trocarView('visao');
+  }
+
+  async function carregarEquipe() {
+    const corpo = $('#equipe-tabela tbody');
+    corpo.innerHTML = '<tr><td colspan="5" class="muted">Carregando...</td></tr>';
+    const { data, error } = await sb.rpc('wg_equipe', {});
+    if (error) { corpo.innerHTML = `<tr><td colspan="5" class="erro">${esc(error.message)}</td></tr>`; return; }
+    corpo.innerHTML = (data || []).map(p => {
+      const eu = p.id === st.user.id;
+      return `<tr data-id="${esc(p.id)}">
+        <td>${esc(p.nome || '—')}${eu ? ' <span class="muted">(você)</span>' : ''}</td>
+        <td>${esc(p.email || '')}</td>
+        <td><select class="equipe-papel" aria-label="Papel de ${esc(p.email || p.nome || '')}">
+          <option value="tecnico"${p.papel === 'tecnico' ? ' selected' : ''}>Técnico</option>
+          <option value="admin"${p.papel === 'admin' ? ' selected' : ''}>Administrador</option></select></td>
+        <td>${fmtData(p.desde)}</td>
+        <td class="num"><button type="button" class="btn-mini btn-mini-perigo equipe-remover">${eu ? 'Sair da empresa' : 'Remover'}</button></td></tr>`;
+    }).join('') || '<tr><td colspan="5" class="muted">Ninguém na equipe.</td></tr>';
+  }
+
+  async function adicionarPessoa(ev) {
+    ev.preventDefault();
+    const email = $('#equipe-email').value.trim();
+    if (!email) return;
+    const btn = $('#equipe-adicionar'); btn.disabled = true;
+    const { error } = await sb.rpc('wg_adicionar_pessoa', { p_email: email, p_papel: $('#equipe-papel-novo').value });
+    btn.disabled = false;
+    $('#equipe-erro').hidden = !error;
+    if (error) { $('#equipe-erro').textContent = error.message; return; }
+    $('#equipe-email').value = '';
+    toast(`${email} agora faz parte da equipe.`);
+    carregarEquipe();
+  }
+
+  async function mudarPapel(id, papel) {
+    const { error } = await sb.rpc('wg_definir_papel', { p_usuario: id, p_papel: papel });
+    if (error) { toast(error.message); carregarEquipe(); return; }
+    toast('Papel alterado.');
+    if (id === st.user.id) { await recarregarMeuPerfil(); return; }
+    carregarEquipe();
+  }
+
+  async function removerPessoa(id) {
+    const eu = id === st.user.id;
+    if (!window.confirm(eu ? 'Sair da empresa? Você perde o acesso aos dados dela.' : 'Remover esta pessoa da empresa? A conta dela continua existindo, mas ela perde o acesso aos dados.')) return;
+    const { error } = await sb.rpc('wg_remover_pessoa', { p_usuario: id });
+    if (error) { toast(error.message); return; }
+    toast(eu ? 'Você saiu da empresa.' : 'Pessoa removida da equipe.');
+    if (eu) { await carregarPerfilEEntrar(); return; }
+    carregarEquipe();
+  }
+
+  /** Relê o próprio papel (depois de mudar o próprio papel na tela Equipe). */
+  async function recarregarMeuPerfil() {
+    const { data } = await sb.from('profiles').select('*').eq('id', st.user.id).single();
+    if (data) st.profile = data;
+    aplicarPapel();
+    if (ehAdmin()) carregarEquipe();
+  }
+
+  // ------------------------------------------------------------- excluir projeto ou campanha (só administrador)
+  function abrirExcluir(tipo) {
+    const proj = st.projetos.find(p => p.id === st.projetoId);
+    const camp = st.campanhas.find(c => c.id === st.campanhaId);
+    if (tipo === 'projeto' && !proj) return;
+    if (tipo === 'campanha' && !camp) return;
+    const n = (x, um, varios) => `${x} ${x === 1 ? um : varios}`;
+    const itens = [];
+    let nome, nota;
+    if (tipo === 'projeto') {
+      nome = proj.nome;
+      const pocos = st.pocos.filter(p => !p.virtual).length;
+      if (pocos) itens.push(`${n(pocos, 'poço', 'poços')} cadastrados no WebGeo`);
+      if (st.campanhas.length) itens.push(`${n(st.campanhas.length, 'campanha', 'campanhas')} e ${n(st.resultados.length, 'resultado', 'resultados')} de laboratório`);
+      if (st.medicoes.length) itens.push(`${n(st.medicoes.length, 'medição', 'medições')} de nível d'água`);
+      if (st.planta) itens.push(`A planta "${st.planta.nome}"`);
+      if (!itens.length) itens.push('Este projeto não tem dados no WebGeo.');
+      if (st.totalFichas) itens.push(`${n(st.totalFichas, 'ficha do Perfil fica', 'fichas do Perfil ficam')} sem projeto (não ${st.totalFichas === 1 ? 'é apagada' : 'são apagadas'})`);
+      nota = 'O projeto é o mesmo do Perfil de Sondagem: ele some de lá também. As fichas de sondagem <b>não são apagadas</b>, ficam "Sem projeto" no Perfil.';
+    } else {
+      nome = camp.codigo;
+      const res = st.resultados.filter(r => r.campanha_id === camp.id).length, med = st.medicoes.filter(m => m.campanha_id === camp.id).length;
+      itens.push(`${n(res, 'resultado', 'resultados')} de laboratório da campanha ${camp.codigo} (${fmtData(camp.data_inicio)})`);
+      if (med) itens.push(`${n(med, 'medição', 'medições')} de nível d'água dessa campanha`);
+      nota = 'Os poços, as outras campanhas e as fichas do Perfil continuam. Para refazer, importe a planilha da campanha de novo.';
+    }
+    st.excluindo = { tipo, id: tipo === 'projeto' ? proj.id : camp.id, nome };
+    $('#modal-excluir-tit').textContent = tipo === 'projeto' ? 'Excluir projeto' : 'Excluir campanha';
+    $('#excluir-tipo').textContent = tipo === 'projeto' ? 'o projeto' : 'a campanha';
+    $('#excluir-nome').textContent = nome;
+    $('#excluir-lista').innerHTML = itens.map(i => `<li>${esc(i)}</li>`).join('');
+    $('#excluir-nota').innerHTML = nota;
+    $('#excluir-rotulo').textContent = tipo === 'projeto' ? 'Para confirmar, digite o nome do projeto' : 'Para confirmar, digite o código da campanha';
+    $('#excluir-confirmar').textContent = tipo === 'projeto' ? 'Excluir projeto' : 'Excluir campanha';
+    $('#excluir-confirma').value = '';
+    $('#excluir-confirmar').disabled = true;
+    $('#excluir-erro').hidden = true;
+    $('#modal-excluir').hidden = false;
+    $('#excluir-confirma').focus();
+  }
+  function fecharExcluir() { $('#modal-excluir').hidden = true; st.excluindo = null; }
+  const confirmouExclusao = () => !!st.excluindo && $('#excluir-confirma').value.trim().toUpperCase() === String(st.excluindo.nome).trim().toUpperCase();
+
+  async function excluirConfirmado() {
+    const x = st.excluindo;
+    if (!x || !confirmouExclusao()) return;
+    const btn = $('#excluir-confirmar'), rotulo = btn.textContent; btn.disabled = true; btn.textContent = 'Excluindo...';
+    // .select() devolve a linha apagada: se voltar vazio, o banco não deixou apagar
+    const { data, error } = await sb.from(x.tipo === 'projeto' ? 'projetos' : 'wg_campanha').delete().eq('id', x.id).select();
+    btn.textContent = rotulo;
+    if (error || !data || !data.length) {
+      console.error(error);
+      $('#excluir-erro').textContent = 'Não foi possível excluir: ' + (error?.message || 'o banco não permitiu (só administradores excluem, e só da própria empresa).');
+      $('#excluir-erro').hidden = false; btn.disabled = false;
+      return;
+    }
+    fecharExcluir();
+    if (x.tipo === 'projeto') {
+      toast(`Projeto "${x.nome}" excluído.`);
+      st.projetoId = null; st.campanhaId = null; st.parametroId = null; st.popupAberto = null; lembrarProjeto('');
+      await carregarProjetos();
+    } else {
+      toast(`Campanha ${x.nome} excluída.`);
+      st.campanhaId = null;
+      await carregarProjeto();
+    }
+  }
+
+  // ------------------------------------------------------------- revisão da importação
+  /** O que o projeto de destino já tem, por código (para comparar com a planilha). */
+  async function historicoDoProjeto(projetoId) {
+    const [campanhas, pocos, resultados] = await Promise.all([
+      buscarTudo(() => sb.from('wg_campanha').select('id, codigo, data_inicio').eq('projeto_id', projetoId).order('id')),
+      buscarTudo(() => sb.from('wg_poco').select('id, codigo, cota_topo, latitude, longitude, profundidade').eq('projeto_id', projetoId).order('id')),
+      buscarTudo(() => sb.from('wg_vw_resultado').select('poco, parametro, campanha, data_coleta, data_inicio, valor, menor_que_lq, lq').eq('projeto_id', projetoId).order('id'))
+    ]);
+    const codPoco = new Map(pocos.map(p => [p.id, p.codigo])), codCamp = new Map(campanhas.map(c => [c.id, c]));
+    const medicoes = campanhas.length
+      ? await buscarTudo(() => sb.from('wg_medicao_campo').select('poco_id, campanha_id, data_medicao, nivel_agua').in('campanha_id', campanhas.map(c => c.id)).order('id'))
+      : [];
+    return {
+      campanhas,
+      pocos,
+      resultados: resultados.map(r => ({ ...r, data: r.data_coleta || r.data_inicio })),
+      medicoes: medicoes.map(m => ({ poco: codPoco.get(m.poco_id), campanha: codCamp.get(m.campanha_id)?.codigo,
+        data: m.data_medicao || codCamp.get(m.campanha_id)?.data_inicio, nivel_agua: m.nivel_agua }))
+    };
+  }
+
+  function mostrarRevisao(rev) {
+    const box = $('#imp-conferencia');
+    const a = rev.alertas;
+    let html = '';
+    if (rev.substitui) html += `<p class="conf-substitui">A campanha <b>${esc(rev.substitui.campanha)}</b> já existe neste projeto: os valores dela serão atualizados com os desta planilha (${rev.substitui.resultados} resultado(s) gravados hoje).</p>`;
+    if (!a.length) html += '<p class="conf-ok">Nada fora do comum em relação ao histórico do projeto.</p>';
+    else {
+      const altos = a.filter(x => x.nivel === 'alto').length;
+      html += `<h4>Conferência: ${a.length} ponto(s) para olhar${altos ? `, ${altos} importante(s)` : ''}</h4>
+        <div class="tbl-wrap"><table class="dtbl conf-tabela"><thead><tr><th></th><th>Poço</th><th>Item</th><th class="num">Antes</th><th class="num">Agora</th><th>Por quê</th></tr></thead><tbody>
+        ${a.map(x => `<tr class="conf-${x.nivel}"><td><span class="conf-marca" title="${x.nivel === 'alto' ? 'Importante' : 'Atenção'}"></span></td>
+          <td class="cod">${esc(x.poco)}</td><td>${esc(x.item)}</td><td class="num">${esc(x.antes)}</td><td class="num"><b>${esc(x.agora)}</b></td><td>${esc(x.motivo)}</td></tr>`).join('')}
+        </tbody></table></div>
+        <label class="chk conf-ciente"><input type="checkbox" id="imp-conferi"><span class="box"></span>Conferi esses pontos e quero gravar assim mesmo</label>`;
+    }
+    box.innerHTML = html;
+    box.hidden = false;
+    const conf = $('#imp-conferi');
+    if (conf) conf.addEventListener('change', () => { $('#btn-gravar').disabled = !conf.checked; });
+    $('#btn-gravar').disabled = !!a.length;
+  }
+
+  // ------------------------------------------------------------- relatório em PDF (impressão do navegador)
+  function abrirRelatorio() {
+    if (!st.projetoId || !st.campanhaId) { toast('Escolha um projeto e uma campanha.'); return; }
+    $('#rel-op-secao').disabled = !st.secao.linha;
+    if (!st.secao.linha) $('#rel-op-secao').checked = false;
+    $('#modal-relatorio').hidden = false;
+  }
+  function fecharRelatorio() { $('#modal-relatorio').hidden = true; }
+
+  /** Tabela poços x parâmetros da campanha, com o valor orientador no cabeçalho e o que passou em destaque. */
+  function tabelaRelatorio() {
+    const camp = st.campanhas.find(c => c.id === st.campanhaId);
+    const res = st.resultados.filter(r => r.campanha_id === st.campanhaId);
+    const params = st.parametros.filter(p => res.some(r => r.parametro_id === p.id));
+    const pocos = st.pocos.filter(p => res.some(r => r.poco_id === p.id) || st.medicoes.some(m => m.poco_id === p.id && m.campanha_id === st.campanhaId && m.nivel_agua != null));
+    const mapa_ = new Map(res.map(r => [r.poco_id + '|' + r.parametro_id, r]));
+    const na = new Map(st.medicoes.filter(m => m.campanha_id === st.campanhaId).map(m => [m.poco_id, m]));
+    const POR_TABELA = 7;
+    let html = '';
+    for (let k = 0; k < Math.max(1, params.length); k += POR_TABELA) {
+      const ps = params.slice(k, k + POR_TABELA);
+      html += `<table class="rel-tabela"><thead><tr><th>Poço</th>${k === 0 ? '<th class="num">N.A. (m)</th>' : ''}${ps.map(p =>
+        `<th class="num">${esc(p.nome)}<small>${esc(p.unidade || '')}${p.valor_orientador != null ? ` · VI ${fmt(p.valor_orientador)}` : ''}</small></th>`).join('')}</tr></thead><tbody>`
+        + pocos.map(p => `<tr><td class="cod">${esc(p.codigo)}</td>${k === 0 ? `<td class="num">${na.has(p.id) && na.get(p.id).nivel_agua != null ? fmt(na.get(p.id).nivel_agua, 2) : '-'}</td>` : ''}${ps.map(q => {
+          const r = mapa_.get(p.id + '|' + q.id);
+          return `<td class="num${r?.acima_vi ? ' rel-acima' : r?.menor_que_lq ? ' rel-lq' : ''}">${textoValor(r)}</td>`;
+        }).join('')}</tr>`).join('') + '</tbody></table>';
+    }
+    const acima = res.filter(r => r.acima_vi).length;
+    return `<h2>Resultados da campanha ${esc(camp?.codigo || '')}</h2>
+      <p class="rel-texto">${pocos.length} poço(s), ${params.length} parâmetro(s), ${res.length} resultado(s); ${acima} acima do valor orientador.
+      Em <b class="rel-acima-txt">vermelho</b>: igual ou acima do valor orientador. "&lt; x": abaixo do limite de quantificação x.</p>${html}`;
+  }
+
+  /** Monta o relatório na própria página e chama a impressão (o usuário escolhe "Salvar como PDF"). */
+  async function prepararRelatorio(op) {
+    const proj = st.projetos.find(p => p.id === st.projetoId);
+    const camp = st.campanhas.find(c => c.id === st.campanhaId);
+    const param = st.parametros.find(p => p.id === st.parametroId);
+    const limiar = limiarAtual(param), un = param?.unidade || 'µg/L';
+    const agora = new Date();
+    $('#rel-cab').innerHTML = `
+      <div class="rel-marca">WebGeo · Relatório de monitoramento</div>
+      <h1>${esc(proj?.nome || '')}</h1>
+      <table class="rel-ficha">
+        <tr><th>Empresa</th><td>${esc(st.org?.name || '')}</td><th>Campanha</th><td>${esc(camp?.codigo || '')} · ${fmtData(camp?.data_inicio)}${camp?.data_fim ? ' a ' + fmtData(camp.data_fim) : ''}</td></tr>
+        <tr><th>Laboratório</th><td>${esc(camp?.laboratorio || '-')}</td><th>Parâmetro do mapa</th><td>${esc(param?.nome || '-')}${param?.valor_orientador != null ? ` · VI ${fmt(param.valor_orientador)} ${esc(un)}` : ''}</td></tr>
+        <tr><th>Emitido em</th><td>${agora.toLocaleDateString('pt-BR')} ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</td><th>Por</th><td>${esc(st.profile?.full_name || st.user?.email || '')}</td></tr>
+      </table>`;
+    $('#rel-tabela').innerHTML = op.tabela ? tabelaRelatorio() : '';
+    const notas = [
+      `Valores orientadores: ${esc(st.parametros.find(p => p.referencia)?.referencia || 'CETESB DD 125/2021/E')}.`,
+      op.pluma ? `Pluma de ${esc(param?.nome || '')}: interpolação IDW em escala logarítmica (p = ${st.pluma.p}), célula de ${st.pluma.cel} m, limiar de ${fmt(limiar, 4)} ${esc(un)}. Valores abaixo do LQ entram como metade do LQ; poços a até 5 m um do outro contam como um ponto, com o maior valor.` : '',
+      st.pot.ativa && st.potCalc?.sup ? `Potenciométrico: carga hidráulica = cota do topo − N.A.; superfície por spline de placa fina; ${esc($('#pot-resumo').textContent)}.` : '',
+      op.secao && st.secao.linha ? 'Seção geológica: litologia das fichas do Perfil de Sondagem; o preenchimento entre as sondagens é uma interpretação automática.' : '',
+      'Mapa: imagem de satélite Esri World Imagery.'
+    ].filter(Boolean);
+    $('#rel-notas').innerHTML = op.notas ? `<h2>Notas</h2><ul>${notas.map(n => `<li>${n}</li>`).join('')}</ul>` : '';
+    // o relatório sai sempre no tema claro (papel branco), mesmo com a tela no modo escuro
+    st.temaAntes = document.documentElement.getAttribute('data-theme');
+    document.documentElement.setAttribute('data-theme', 'light');
+    const corpo = document.body.classList;
+    corpo.add('modo-relatorio');
+    corpo.toggle('rel-sem-mapa', !op.mapa);
+    corpo.toggle('rel-sem-secao', !op.secao);
+    corpo.toggle('rel-sem-pluma', !op.pluma);
+    trocarView('visao');
+    await new Promise(r => setTimeout(r, 50));
+    mapa.invalidateSize();
+    render();                                   // gráficos e desenhos com as cores do tema claro
+    if (op.mapa && st.pontos.length) mapa.fitBounds(st.pontos, { padding: [20, 20], maxZoom: 19, animate: false });
+    atualizarRotulos();
+    if (st.secao.linha) renderSecao();
+    Object.values(graficos).forEach(g => g?.resize?.());
+    await esperarImagemDoMapa(4000);
+  }
+
+  /** Espera os pedaços da imagem de satélite carregarem (no máximo `ms`). */
+  function esperarImagemDoMapa(ms) {
+    return new Promise(fim => {
+      const t = setTimeout(fim, ms);
+      const pendentes = () => [...document.querySelectorAll('#mapa .leaflet-tile')].filter(i => !i.complete).length;
+      const ver = () => { if (!pendentes()) { clearTimeout(t); setTimeout(fim, 300); } else setTimeout(ver, 150); };
+      setTimeout(ver, 200);
+    });
+  }
+
+  function encerrarRelatorio() {
+    if (!document.body.classList.contains('modo-relatorio')) return;
+    document.body.classList.remove('modo-relatorio', 'rel-sem-mapa', 'rel-sem-secao', 'rel-sem-pluma');
+    if (st.temaAntes) document.documentElement.setAttribute('data-theme', st.temaAntes); else document.documentElement.removeAttribute('data-theme');
+    setTimeout(() => { mapa.invalidateSize(); render(); }, 50);
+  }
+
+  async function gerarRelatorio() {
+    const op = { mapa: $('#rel-op-mapa').checked, secao: $('#rel-op-secao').checked, pluma: $('#rel-op-pluma').checked,
+      tabela: $('#rel-op-tabela').checked, notas: $('#rel-op-notas').checked };
+    const btn = $('#rel-gerar'); btn.disabled = true; btn.textContent = 'Preparando...';
+    await prepararRelatorio(op);
+    btn.disabled = false; btn.textContent = 'Gerar PDF';
+    fecharRelatorio();
+    window.print();                 // a janela do navegador abre aqui; escolha "Salvar como PDF"
+    setTimeout(encerrarRelatorio, 500);
+  }
+
   function renderEvolucao(param) {
     const calc = st.calc, un = param?.unidade || 'µg/L';
     const sel = plumaDaCampanha(st.campanhaId), ini = primeiraComArea();
@@ -3084,6 +3470,21 @@ const WebGeo = (() => {
       const { payload, rel } = WGImport.ler(XLSX, wb, arquivo.name, { parametros: st.parametros, pocosExistentes: existentes, projetoDestino: destino });
       st.importacao = { payload, rel, novo };
       mostrarRelatorio(rel, payload, novo);
+      if (!rel.erros.length) {                 // confere com o que o projeto já tem antes de deixar gravar
+        $('#imp-conferencia').hidden = false;
+        $('#imp-conferencia').innerHTML = '<p class="muted">Conferindo com o histórico do projeto...</p>';
+        $('#btn-gravar').disabled = true;
+        try {
+          const hist = destino ? await historicoDoProjeto(destino.id) : null;
+          if (st.importacao?.payload !== payload) return;   // outra planilha foi escolhida no meio
+          st.importacao.revisao = WGRevisao.conferir(payload, hist, st.parametros);
+          mostrarRevisao(st.importacao.revisao);
+        } catch (e) {
+          console.error(e);
+          $('#imp-conferencia').innerHTML = '<p class="muted">Não consegui conferir com o histórico agora (' + esc(e.message || e) + '). Dá para gravar mesmo assim.</p>';
+          $('#btn-gravar').disabled = false;
+        }
+      }
     } catch (e) {
       console.error(e);
       $('#imp-status').innerHTML = '<span class="erro">Não consegui ler o arquivo:</span> ' + esc(e.message);
@@ -3131,8 +3532,10 @@ const WebGeo = (() => {
     st.importacao = null;
     $('#arquivo').value = '';
     $('#imp-relatorio').hidden = true;
+    $('#imp-conferencia').hidden = true;
+    $('#imp-conferencia').innerHTML = '';
     $('#imp-status').textContent = '';
   }
 
-  return { iniciar, _teste: { mapa: () => mapa, estado: st } }; // _teste: usado só pelos testes automáticos
+  return { iniciar, _teste: { mapa: () => mapa, estado: st, prepararRelatorio: op => prepararRelatorio(op), encerrarRelatorio: () => encerrarRelatorio() } }; // _teste: usado só pelos testes automáticos
 })();
