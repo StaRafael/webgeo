@@ -604,3 +604,57 @@
   .equipe-criado{padding:10px 14px;border-radius:var(--radius-m);background:var(--accent-tint);font-size:13px;line-height:1.5;}
   .equipe-criado code{font-family:var(--font-mono);font-size:13px;background:var(--surface);padding:1px 6px;border-radius:4px;user-select:all;}
   .rail-user-acoes{display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex:none;}
+
+  /* ---------- Fotos 360° ---------- */
+  .f360-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto;}
+  .f360-lista li{display:flex;align-items:center;gap:6px;min-width:0;}
+  .f360-nome{flex:1;min-width:0;text-align:left;background:none;border:none;padding:3px 0;font-size:12.5px;font-weight:600;color:var(--ink);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;}
+  .f360-nome:hover{color:var(--accent-ink);text-decoration:underline;}
+  .f360-sem{flex:none;font-size:10.5px;font-weight:600;color:var(--danger);}
+  .f360-erro{font-size:12px;color:var(--ink-soft);line-height:1.45;}
+  .pino-360{width:34px;height:22px;border-radius:11px;background:#172621;color:#fff;border:2px solid #fff;font:700 10px/18px "IBM Plex Sans",sans-serif;
+    text-align:center;letter-spacing:-.02em;box-shadow:0 1px 4px rgba(0,0,0,.45);cursor:pointer;}
+  .pino-360:hover{background:#2F6F5E;}
+  .popup-360 .leaflet-popup-content{margin:10px;}
+  .pop-360{display:flex;flex-direction:column;gap:6px;font-family:var(--font-sans);}
+  .pop-360-mini{position:relative;display:block;width:100%;aspect-ratio:2/1;padding:0;border:none;border-radius:6px;overflow:hidden;background:#DCE3DF;cursor:pointer;}
+  .pop-360-mini img{display:block;width:100%;height:100%;object-fit:cover;}
+  .pop-360-mini b{position:absolute;left:8px;bottom:8px;background:rgba(23,38,33,.82);color:#fff;font-size:11px;padding:3px 8px;border-radius:999px;}
+  .pop-360-carr{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:#56655D;}
+  .pop-360-nome{font-size:13.5px;font-weight:700;color:#172621;}
+  .pop-360-info{font-size:11.5px;color:#56655D;}
+  .pop-360-acoes{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:2px;}
+  .btn-mini.confirmando{background:var(--danger);border-color:var(--danger);color:#fff;}
+  .f360-previa{display:flex;flex-direction:column;gap:8px;align-items:flex-start;}
+  .f360-previa img{display:block;width:100%;aspect-ratio:2/1;object-fit:cover;border-radius:6px;background:var(--surface-alt);}
+  .f360-info{margin:8px 0 0;font-size:12px;color:var(--ink-soft);}
+  .f360-aviso{margin:8px 0 0;font-size:12px;color:var(--danger);background:var(--danger-tint);padding:7px 9px;border-radius:6px;}
+  .f360-local{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:6px;margin:4px 0 12px;}
+  .f360-local > div{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:12.5px;}
+  .f360-local-tit{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.045em;color:var(--ink-soft);}
+  .f360-local .btn{flex:none;}
+  body.visor-aberto{overflow:hidden;}
+  .visor360{position:fixed;inset:0;z-index:5000;background:#0b100e;display:flex;flex-direction:column;color:#E7EEEA;}
+  .visor360[hidden]{display:none;}
+  .visor360-cab,.visor360-rodape{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;}
+  .visor360-tit{display:flex;flex-direction:column;min-width:0;}
+  .visor360-tit b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .visor360-tit span{font-size:12px;color:#A3B3AA;}
+  .visor360-area{position:relative;flex:1;min-height:0;}
+  .visor360-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none;}
+  .visor360-canvas.arrastando{cursor:grabbing;}
+  .visor360-plano{position:absolute;inset:0;overflow-x:auto;overflow-y:hidden;}
+  .visor360-plano img{height:100%;width:auto;max-width:none;display:block;}
+  .visor360-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:#A3B3AA;padding:20px;text-align:center;}
+  .visor360-msg[hidden]{display:none;}
+  .visor360-dica{font-size:12px;color:#A3B3AA;}
+  .visor360-ctl{display:flex;gap:6px;}
+  .visor360-btn{width:38px;height:38px;border-radius:8px;border:1px solid #3C5049;background:#182420;color:#E7EEEA;font-size:18px;line-height:1;cursor:pointer;}
+  .visor360-btn:hover{background:#1F2E28;border-color:#5FBE9C;}
+  .visor360-btn:focus-visible{outline:2px solid #5FBE9C;outline-offset:2px;}
+  @media (max-width: 640px){
+    .visor360-dica{display:none;}
+    .visor360-rodape{justify-content:center;}
+  }
+  @media print{ .visor360,.rail-f360{display:none !important;} }

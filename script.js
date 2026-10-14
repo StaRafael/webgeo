@@ -1461,7 +1461,198 @@ const WGRevisao = (() => {
   return { conferir };
 })();
 
-if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf, WGPot, WGSecao, WGRevisao };
+/* =====================================================================
+   3e. FOTOS 360° (funções puras, sem tela)
+   Lê o GPS gravado pela câmera (EXIF do JPEG) e confere se a imagem é
+   uma panorâmica equiretangular (largura = 2 x altura).
+   ===================================================================== */
+const WG360 = (() => {
+  /** Latitude/longitude do EXIF de um JPEG (ArrayBuffer). null se não tiver GPS. */
+  function gpsDoJpeg(buf) {
+    try {
+      const v = new DataView(buf);
+      if (v.byteLength < 12 || v.getUint16(0) !== 0xFFD8) return null;
+      let o = 2;
+      while (o + 4 <= v.byteLength) {
+        const m = v.getUint16(o);
+        if ((m & 0xFF00) !== 0xFF00) return null;
+        if (m === 0xFFDA || m === 0xFFD9) return null;              // começou a imagem: não há EXIF
+        const len = v.getUint16(o + 2);
+        if (m === 0xFFE1 && o + 10 <= v.byteLength && v.getUint32(o + 4) === 0x45786966) return lerTiff(v, o + 10);
+        o += 2 + len;
+      }
+    } catch (e) { /* arquivo estranho: sem GPS */ }
+    return null;
+  }
+  function lerTiff(v, t) {
+    const le = v.getUint16(t) === 0x4949;
+    const u16 = a => v.getUint16(a, le), u32 = a => v.getUint32(a, le);
+    const tag = (ifd, id) => { const n = u16(ifd); for (let i = 0; i < n; i++) { const e = ifd + 2 + i * 12; if (u16(e) === id) return e; } return null; };
+    const g = tag(t + u32(t + 4), 0x8825);
+    if (!g) return null;
+    const gps = t + u32(g + 8);
+    const graus = e => { const a = t + u32(e + 8); const r = k => u32(a + k * 8) / u32(a + k * 8 + 4); return r(0) + r(1) / 60 + r(2) / 3600; };
+    const ref = e => e ? String.fromCharCode(v.getUint8(e + 8)) : '';
+    const eLat = tag(gps, 2), eLon = tag(gps, 4);
+    if (!eLat || !eLon) return null;
+    let lat = graus(eLat), lon = graus(eLon);
+    if (ref(tag(gps, 1)) === 'S') lat = -lat;
+    if (ref(tag(gps, 3)) === 'W') lon = -lon;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) return null;
+    return { lat, lon };
+  }
+
+  /** Panorâmica 360° completa tem proporção 2:1 (aceita 5% de folga). */
+  function eh360(largura, altura) { return largura > 0 && altura > 0 && Math.abs(largura / altura - 2) <= 0.1; }
+
+  /** Tamanho final da foto gravada: no máximo 4096 x 2048 (leve e aceito por qualquer celular). */
+  function tamanhoFinal(largura, altura, max = 4096) {
+    const L = Math.min(max, largura);
+    return { largura: L, altura: Math.round(L / 2) };
+  }
+
+  return { gpsDoJpeg, eh360, tamanhoFinal };
+})();
+
+/* =====================================================================
+   Visor 360°: WebGL puro, sem biblioteca. Um retângulo na tela e um
+   shader que, para cada pixel, calcula a direção do olhar e busca a cor
+   na imagem equiretangular. Arrastar = girar; roda/pinça = aproximar.
+   ===================================================================== */
+const Visor360 = (() => {
+  const VS = 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }';
+  const FS = `
+    #ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    #else
+    precision mediump float;
+    #endif
+    uniform sampler2D t; uniform vec2 r; uniform float yaw; uniform float pitch; uniform float f;
+    void main(){
+      vec2 q = (gl_FragCoord.xy * 2.0 - r) / r.y;
+      vec3 d = normalize(vec3(q.x * f, q.y * f, 1.0));
+      float cp = cos(pitch), sp = sin(pitch);
+      d = vec3(d.x, d.y * cp + d.z * sp, -d.y * sp + d.z * cp);
+      float cy = cos(yaw), sy = sin(yaw);
+      d = vec3(d.x * cy + d.z * sy, d.y, -d.x * sy + d.z * cy);
+      float lon = atan(d.x, d.z);
+      float lat = asin(clamp(d.y, -1.0, 1.0));
+      gl_FragColor = texture2D(t, vec2(0.5 + lon / 6.28318530718, 0.5 - lat / 3.14159265359));
+    }`;
+  const FOV_MIN = 30, FOV_MAX = 110, FOV_INI = 80;
+
+  /** Abre a imagem (já carregada) dentro de "area". Devolve {zoom, centro, destruir}. */
+  function abrir(area, img) {
+    const cv = document.createElement('canvas');
+    cv.className = 'visor360-canvas';
+    area.appendChild(cv);
+    const gl = cv.getContext('webgl', { antialias: false, preserveDrawingBuffer: false }) || cv.getContext('experimental-webgl');
+    if (!gl) { cv.remove(); return planoSemWebgl(area, img); }
+
+    const sh = (tipo, src) => { const s = gl.createShader(tipo); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { cv.remove(); return planoSemWebgl(area, img); }
+    gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, 'p');
+    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+    // textura: se a placa de vídeo não aceitar o tamanho, reduz antes
+    const max = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
+    let fonte = img;
+    const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
+    if (w0 > max || h0 > max) {
+      const k = Math.min(max / w0, max / h0), c = document.createElement('canvas');
+      c.width = Math.floor(w0 * k); c.height = Math.floor(h0 * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      fonte = c;
+    }
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, fonte);
+    const u = n => gl.getUniformLocation(prog, n);
+    const U = { r: u('r'), yaw: u('yaw'), pitch: u('pitch'), f: u('f') };
+
+    const vista = { yaw: 0, pitch: 0, fov: FOV_INI };
+    let pedido = 0, vivo = true;
+    function desenhar() {
+      pedido = 0; if (!vivo) return;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const W = Math.max(1, Math.round(cv.clientWidth * dpr)), H = Math.max(1, Math.round(cv.clientHeight * dpr));
+      if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+      gl.viewport(0, 0, W, H);
+      gl.uniform2f(U.r, W, H);
+      gl.uniform1f(U.yaw, vista.yaw * Math.PI / 180);
+      gl.uniform1f(U.pitch, vista.pitch * Math.PI / 180);
+      gl.uniform1f(U.f, Math.tan(vista.fov * Math.PI / 360));
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    const pedir = () => { if (!pedido) pedido = requestAnimationFrame(desenhar); };
+    const limitar = () => {
+      vista.fov = Math.max(FOV_MIN, Math.min(FOV_MAX, vista.fov));
+      vista.pitch = Math.max(-89, Math.min(89, vista.pitch));
+      vista.yaw = ((vista.yaw + 540) % 360) - 180;
+    };
+
+    // arrastar (mouse, caneta ou dedo) e pinça com dois dedos
+    const toques = new Map();
+    let pinca = null;
+    cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); toques.set(e.pointerId, { x: e.clientX, y: e.clientY }); cv.classList.add('arrastando'); });
+    cv.addEventListener('pointermove', e => {
+      const a = toques.get(e.pointerId); if (!a) return;
+      if (toques.size === 2) {
+        a.x = e.clientX; a.y = e.clientY;
+        const [p1, p2] = [...toques.values()], d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        if (pinca) { vista.fov = pinca.fov * pinca.d / Math.max(10, d); limitar(); pedir(); } else pinca = { d, fov: vista.fov };
+        return;
+      }
+      const grausPorPx = vista.fov / Math.max(1, cv.clientHeight);
+      vista.yaw -= (e.clientX - a.x) * grausPorPx;
+      vista.pitch += (e.clientY - a.y) * grausPorPx;
+      a.x = e.clientX; a.y = e.clientY;
+      limitar(); pedir();
+    });
+    const soltar = e => { toques.delete(e.pointerId); pinca = null; if (!toques.size) cv.classList.remove('arrastando'); };
+    cv.addEventListener('pointerup', soltar); cv.addEventListener('pointercancel', soltar);
+    cv.addEventListener('wheel', e => { e.preventDefault(); vista.fov *= Math.exp(e.deltaY * 0.0012); limitar(); pedir(); }, { passive: false });
+    const ro = window.ResizeObserver ? new ResizeObserver(pedir) : null;
+    if (ro) ro.observe(cv); else window.addEventListener('resize', pedir);
+    pedir();
+
+    return {
+      zoom(k) { vista.fov *= k; limitar(); pedir(); },
+      girar(dy, dp) { vista.yaw += dy; vista.pitch += dp; limitar(); pedir(); },
+      centro() { vista.yaw = 0; vista.pitch = 0; vista.fov = FOV_INI; pedir(); },
+      destruir() {
+        vivo = false; if (pedido) cancelAnimationFrame(pedido);
+        if (ro) ro.disconnect(); else window.removeEventListener('resize', pedir);
+        gl.deleteTexture(tex); gl.deleteBuffer(buf); gl.deleteProgram(prog);
+        const ext = gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext();
+        cv.remove();
+      }
+    };
+  }
+
+  /** Sem WebGL (raro): mostra a panorâmica plana, com rolagem para o lado. */
+  function planoSemWebgl(area, img) {
+    const d = document.createElement('div');
+    d.className = 'visor360-plano';
+    const i = img.cloneNode(); d.appendChild(i); area.appendChild(d);
+    return { zoom() {}, girar(dy) { d.scrollLeft += dy * 8; }, centro() { d.scrollLeft = (d.scrollWidth - d.clientWidth) / 2; }, destruir() { d.remove(); } };
+  }
+
+  return { abrir };
+})();
+
+if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf, WGPot, WGSecao, WGRevisao, WG360 };
 
 /* =====================================================================
    4. APLICAÇÃO (tela)
@@ -1474,7 +1665,7 @@ if (typeof window !== 'undefined' && window.document) {
 
 const WebGeo = (() => {
   let sb;                       // cliente Supabase
-  let mapa, camadaSecao, camadaPocos, camadaRotulos, camadaPluma, camadaPot, camadaPlanta, camadaAjuste, rendPlanta;
+  let mapa, camadaSecao, camadaF360, camadaPocos, camadaRotulos, camadaPluma, camadaPot, camadaPlanta, camadaAjuste, rendPlanta;
   let rotulosDoMapa = [];        // nomes a escrever no mapa: {ll, html, texto, status}
   let graficos = {};
   let usuarioCarregado = null;  // evita recarregar a tela quando o Supabase só renova o token
@@ -1491,7 +1682,8 @@ const WebGeo = (() => {
     pot: { ativa: false, rede: null, intervalo: 0, suav: 0, setas: true }, // rede null = escolhe sozinho; intervalo 0 = automático
     potCalc: null,                // superfície potenciométrica da campanha selecionada
     secao: { tracando: null, linha: null, faixa: 10, exag: 0, ligar: true }, // seção geológica A–A' (exag 0 = automático)
-    secaoCalc: null,              // sondagens que entram no corte
+    secaoCalc: null,
+    f360: { lista: [], erro: null, mostrar: true, novo: null, marcar: null, urls: new Map() }, // fotos 360° do projeto              // sondagens que entram no corte
     planta: null, plantaLL: null, plantaErro: null, dxfNovo: null, ajuste: null // planta em DXF do projeto
   };
 
@@ -1592,6 +1784,7 @@ const WebGeo = (() => {
     $('#f-parametro').addEventListener('change', e => { st.parametroId = +e.target.value; st.pluma.limiar = null; render(); });
     $('#f-campanha').addEventListener('change', e => { st.campanhaId = +e.target.value; aplicarPapel(); render(); });
     $('#btn-csv').addEventListener('click', exportarCSV);
+    ligarEventosF360();
 
     // Planta em DXF
     $('#btn-planta-inserir').addEventListener('click', () => $('#arquivo-dxf').click());
@@ -1731,6 +1924,7 @@ const WebGeo = (() => {
       if (!st.projetoId) {
         st.campanhas = []; st.pocos = []; st.resultados = []; st.medicoes = []; st.soltas = [];
         await carregarPlanta();
+        await carregarFotos360();
         carregarSecao();
         render(); trocarView('importar'); return;
       }
@@ -2046,7 +2240,8 @@ const WebGeo = (() => {
       }
       juntarFichas(pocos, fichas);
       await carregarPlanta();
-        carregarSecao();
+      await carregarFotos360();
+      carregarSecao();
 
       // Parâmetros com resultado neste projeto; começa pelo que tem mais poços acima do VI
       const comDados = new Set(resultados.map(r => r.parametro_id));
@@ -2215,13 +2410,15 @@ const WebGeo = (() => {
     camadaPlanta = L.layerGroup().addTo(mapa);
     camadaAjuste = L.layerGroup().addTo(mapa);
     mapa.on('click', cliqueAjuste);
-    mapa.on('popupopen', () => { if (st.ajuste || st.secao.tracando) setTimeout(() => mapa.closePopup(), 0); }); // ajustando a planta ou traçando a seção: sem popups
+    mapa.on('click', cliqueF360);
+    mapa.on('popupopen', () => { if (st.ajuste || st.secao.tracando || st.f360.marcar) setTimeout(() => mapa.closePopup(), 0); }); // ajustando a planta ou traçando a seção: sem popups
     mapa.on('click', cliqueSecao);
     mapa.on('dblclick', () => { if (st.secao.tracando) concluirSecao(); });
     camadaPluma = L.layerGroup().addTo(mapa);
     camadaPot = L.layerGroup().addTo(mapa);
     camadaSecao = L.layerGroup().addTo(mapa);
     camadaPocos = L.layerGroup().addTo(mapa);
+    camadaF360 = L.layerGroup().addTo(mapa);
     camadaRotulos = L.layerGroup().addTo(mapa);
     mapa.on('zoomend', atualizarRotulos);
     atualizarRotulos();
@@ -2600,6 +2797,308 @@ const WebGeo = (() => {
     if (c.semCota > 0) partes.push(`${c.semCota} poço(s) com N.A. ficaram de fora por falta de cota ou coordenada`);
     $('#pot-resumo').textContent = partes.join(' · ');
     $('#leg-pot-resumo').textContent = partes.slice(0, 5).join(' · ');
+  }
+
+  // ------------------------------------------------------------- fotos 360°
+  const BUCKET_FOTOS = 'fotos-sondagem';   // o mesmo bucket das fotos do Perfil (pasta por empresa)
+  let visor = null;
+
+  async function carregarFotos360() {
+    st.f360.lista = []; st.f360.erro = null;
+    if (st.projetoId) {
+      const { data, error } = await sb.from('wg_foto360').select('*').eq('projeto_id', st.projetoId).order('criado_em');
+      if (error) { st.f360.erro = error.message || String(error); console.warn('Fotos 360°:', st.f360.erro); }
+      else st.f360.lista = data || [];
+    }
+    montarPainelF360();
+    renderF360Mapa();
+  }
+
+  function montarPainelF360() {
+    const l = st.f360.lista;
+    $('#btn-f360-inserir').hidden = !st.projetoId;
+    $('#f360-painel').hidden = !l.length && !st.f360.erro;
+    $('#f-f360').checked = st.f360.mostrar;
+    $('#f360-conta').textContent = l.length ? `(${l.length})` : '';
+    $('#f360-lista').innerHTML = st.f360.erro
+      ? `<li class="f360-erro">Fotos 360° ainda não liberadas no banco. Rode o arquivo <b>07_fotos_360.sql</b>.</li>`
+      : l.map(f => `<li data-id="${esc(f.id)}">
+          <button type="button" class="f360-nome" data-acao="ver" title="Ver em 360°">${esc(f.nome)}</button>
+          ${f.latitude == null ? '<span class="f360-sem">sem local</span>' : ''}
+          <button type="button" class="btn-mini" data-acao="local" title="Marcar no mapa onde a foto foi tirada">Local</button>
+        </li>`).join('');
+  }
+
+  const URL_VALE_MS = 50 * 60 * 1000;
+  async function urlFoto(caminho) {
+    const c = st.f360.urls.get(caminho);
+    if (c && c.ate > Date.now()) return c.url;
+    const { data, error } = await sb.storage.from(BUCKET_FOTOS).createSignedUrl(caminho, 3600);
+    if (error || !data) throw new Error(error?.message || 'Foto não encontrada.');
+    st.f360.urls.set(caminho, { url: data.signedUrl, ate: Date.now() + URL_VALE_MS });
+    return data.signedUrl;
+  }
+
+  function renderF360Mapa() {
+    if (!camadaF360) return;
+    camadaF360.clearLayers();
+    if (!st.f360.mostrar) return;
+    st.f360.lista.filter(f => f.latitude != null && f.longitude != null).forEach(f => {
+      const m = L.marker([+f.latitude, +f.longitude], {
+        icon: L.divIcon({ className: '', html: '<div class="pino-360" aria-hidden="true">360°</div>', iconSize: [34, 22], iconAnchor: [17, 11] }),
+        title: f.nome, keyboard: true, zIndexOffset: 300
+      });
+      m.bindPopup(() => popupF360(f), { maxWidth: 300, minWidth: 260, className: 'popup-360' });
+      m.on('click', cliqueSecao);
+      m.addTo(camadaF360);
+    });
+  }
+
+  function popupF360(f) {
+    const d = document.createElement('div');
+    d.className = 'pop-360';
+    d.innerHTML = `
+      <button type="button" class="pop-360-mini" data-acao="ver" title="Ver em 360°"><span class="pop-360-carr">carregando…</span><img alt="" hidden><b>Ver em 360°</b></button>
+      <div class="pop-360-nome">${esc(f.nome)}</div>
+      <div class="pop-360-info">${fmtData(f.criado_em)} · ${fmt(+f.latitude, 6)}, ${fmt(+f.longitude, 6)}</div>
+      <div class="pop-360-acoes">
+        <button type="button" class="btn btn-primary btn-sm2" data-acao="ver">Ver foto 360°</button>
+        <button type="button" class="btn-mini" data-acao="local">Mudar local</button>
+        <button type="button" class="btn-mini btn-mini-perigo" data-acao="excluir">Excluir</button>
+      </div>`;
+    const img = d.querySelector('img');
+    if (f.miniatura) urlFoto(f.miniatura).then(u => { img.onload = () => { img.hidden = false; d.querySelector('.pop-360-carr').remove(); }; img.src = u; })
+      .catch(() => { d.querySelector('.pop-360-carr').textContent = 'miniatura indisponível'; });
+    else d.querySelector('.pop-360-carr').textContent = '';
+    d.addEventListener('click', e => {
+      const b = e.target.closest('[data-acao]'); if (!b) return;
+      if (b.dataset.acao === 'ver') { mapa.closePopup(); verFoto360(f); }
+      if (b.dataset.acao === 'local') { mapa.closePopup(); marcarLocalF360({ foto: f }); }
+      if (b.dataset.acao === 'excluir') {
+        if (b.dataset.confirmar) excluirFoto360(f, b);
+        else { b.dataset.confirmar = '1'; b.textContent = 'Confirmar exclusão'; b.classList.add('confirmando'); }
+      }
+    });
+    return d;
+  }
+
+  // ---- inserir
+  function carregarImagem(src) {
+    return new Promise((ok, falha) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => falha(new Error('Não consegui abrir a imagem.')); i.src = src; });
+  }
+  const paraBlob = (cv, q) => new Promise((ok, falha) => cv.toBlob(b => b ? ok(b) : falha(new Error('Não consegui preparar a imagem.')), 'image/jpeg', q));
+  const tamanhoTxt = b => b >= 1048576 ? fmt(b / 1048576, 1) + ' MB' : fmt(Math.round(b / 1024), 0) + ' KB';
+
+  /** Reduz a foto (até 4096 x 2048, JPEG) e faz a miniatura com a vista da frente. */
+  async function prepararFoto360(arquivo) {
+    const gps = /jpe?g$/i.test(arquivo.type) || /\.jpe?g$/i.test(arquivo.name) ? WG360.gpsDoJpeg(await arquivo.arrayBuffer()) : null;
+    const url = URL.createObjectURL(arquivo);
+    try {
+      const img = await carregarImagem(url);
+      const w = img.naturalWidth, h = img.naturalHeight;
+      // tenta a melhor qualidade que fique abaixo de 1,8 MB (leve para abrir no celular e
+      // abaixo do limite de envio mais comum em hospedagem, 2 MB)
+      const LIMITE = 1.8 * 1048576;
+      const cv = document.createElement('canvas');
+      const ctx = cv.getContext('2d');
+      let foto = null, fim = null;
+      for (const [max, q] of [[4096, 0.85], [4096, 0.78], [4096, 0.7], [3072, 0.8], [3072, 0.7], [2048, 0.75]]) {
+        const t = WG360.tamanhoFinal(w, h, max);
+        if (!fim || t.largura !== fim.largura) {
+          fim = t; cv.width = t.largura; cv.height = t.altura;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        }
+        foto = await paraBlob(cv, q);
+        if (foto.size <= LIMITE) break;
+      }
+      const mc = document.createElement('canvas');
+      mc.width = 600; mc.height = 300;
+      const mctx = mc.getContext('2d'); mctx.imageSmoothingQuality = 'high';
+      mctx.drawImage(cv, cv.width * 0.3, cv.height * 0.3, cv.width * 0.4, cv.height * 0.4, 0, 0, 600, 300); // frente da câmera
+      const mini = await paraBlob(mc, 0.75);
+      cv.width = cv.height = mc.width = mc.height = 1;   // libera a memória (celular)
+      return { foto, mini, largura: fim.largura, altura: fim.altura, original: { w, h, bytes: arquivo.size }, eh360: WG360.eh360(w, h), gps };
+    } finally { URL.revokeObjectURL(url); }
+  }
+
+  async function escolheuArquivoF360(arquivo) {
+    if (!arquivo) return;
+    if (!/^image\/(jpeg|png|webp)$/i.test(arquivo.type) && !/\.(jpe?g|png|webp)$/i.test(arquivo.name)) { toast('Escolha uma foto JPG, PNG ou WebP.'); return; }
+    toast('Preparando a foto…');
+    let p;
+    try { p = await prepararFoto360(arquivo); } catch (e) { console.error(e); toast('Não consegui abrir essa foto: ' + (e.message || e)); return; }
+    if (st.f360.novo?.previa) URL.revokeObjectURL(st.f360.novo.previa);
+    st.f360.novo = { ...p, nome: arquivo.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim().slice(0, 120) || 'Foto 360°',
+      lat: p.gps?.lat ?? null, lon: p.gps?.lon ?? null, doGps: !!p.gps, previa: URL.createObjectURL(p.mini) };
+    abrirModalF360();
+  }
+
+  function abrirModalF360() {
+    const n = st.f360.novo; if (!n) return;
+    $('#f360-previa-img').src = n.previa;
+    $('#f360-previa-info').textContent = `${n.original.w} x ${n.original.h} px · ${tamanhoTxt(n.original.bytes)} → grava ${n.largura} x ${n.altura} px · ${tamanhoTxt(n.foto.size + n.mini.size)}`;
+    $('#f360-nome').value = n.nome;
+    const aviso = $('#f360-aviso');
+    aviso.hidden = n.eh360;
+    aviso.textContent = n.eh360 ? '' : `Esta imagem tem proporção ${fmt(n.original.w / n.original.h, 2)}:1. Uma foto 360° completa tem 2:1; ela vai aparecer esticada no visor.`;
+    textoLocalF360();
+    $('#f360-erro').hidden = true;
+    $('#f360-salvar').disabled = false; $('#f360-salvar').textContent = 'Salvar foto';
+    $('#modal-f360').hidden = false;
+  }
+  function textoLocalF360() {
+    const n = st.f360.novo; if (!n) return;
+    $('#f360-local-txt').textContent = n.lat != null
+      ? `${fmt(n.lat, 6)}, ${fmt(n.lon, 6)}${n.doGps ? ' (lida do GPS da câmera)' : ''}`
+      : 'ainda não marcada (sem ela a foto não aparece no mapa)';
+    $('#f360-marcar').textContent = n.lat != null ? 'Mudar no mapa' : 'Marcar no mapa';
+  }
+  function fecharModalF360(descartar = true) {
+    $('#modal-f360').hidden = true;
+    if (descartar && st.f360.novo) { URL.revokeObjectURL(st.f360.novo.previa); st.f360.novo = null; }
+  }
+
+  async function salvarFoto360() {
+    const n = st.f360.novo; if (!n || !st.projetoId || !st.org?.id) return;
+    n.nome = $('#f360-nome').value.trim() || 'Foto 360°';
+    const btn = $('#f360-salvar'); btn.disabled = true; btn.textContent = 'Enviando…';
+    const erro = msg => { $('#f360-erro').textContent = msg; $('#f360-erro').hidden = false; btn.disabled = false; btn.textContent = 'Salvar foto'; };
+    const id = (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); }));
+    const pasta = `${st.org.id}/f360-${id}`;
+    const caminho = pasta + '/foto.jpg', miniatura = pasta + '/miniatura.jpg';
+    try {
+      const up1 = await sb.storage.from(BUCKET_FOTOS).upload(caminho, n.foto, { upsert: true, contentType: 'image/jpeg' });
+      if (up1.error) throw up1.error;
+      const up2 = await sb.storage.from(BUCKET_FOTOS).upload(miniatura, n.mini, { upsert: true, contentType: 'image/jpeg' });
+      if (up2.error) throw up2.error;
+      const { error } = await sb.from('wg_foto360').upsert({ id, projeto_id: st.projetoId, nome: n.nome.slice(0, 200), latitude: n.lat, longitude: n.lon,
+        caminho, miniatura, largura: n.largura, altura: n.altura });
+      if (error) { sb.storage.from(BUCKET_FOTOS).remove([caminho, miniatura]); throw error; }
+    } catch (e) {
+      console.error(e);
+      const m = e?.message || String(e);
+      erro(/wg_foto360|relation|schema cache|doesn't exist/i.test(m) ? 'O banco ainda não tem a tabela das fotos 360°. Rode o arquivo 07_fotos_360.sql e tente de novo.' : 'Não consegui salvar: ' + m);
+      return;
+    }
+    fecharModalF360();
+    toast('Foto 360° salva.');
+    await carregarFotos360();
+  }
+
+  // ---- marcar localização no mapa (para a foto nova ou para uma já salva)
+  function marcarLocalF360(alvo) {
+    if (!mapa) return;
+    if (st.ajuste) cancelarAjuste(true);
+    if (st.secao.tracando) cancelarSecao();
+    st.f360.marcar = alvo;
+    if (alvo.novo) $('#modal-f360').hidden = true;
+    trocarView('visao');
+    mapa.closePopup();
+    mapa.getContainer().classList.add('mapa-ajustando');
+    $('#f360-passo').textContent = `Clique no mapa onde a foto "${alvo.novo ? $('#f360-nome').value.trim() || 'nova' : alvo.foto.nome}" foi tirada`;
+    $('#f360-barra').hidden = false;
+    $('#f360-barra').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  function fecharMarcarF360() {
+    const alvo = st.f360.marcar; st.f360.marcar = null;
+    $('#f360-barra').hidden = true;
+    mapa.getContainer().classList.remove('mapa-ajustando');
+    if (alvo?.novo) { textoLocalF360(); $('#modal-f360').hidden = false; }
+  }
+  async function cliqueF360(ev) {
+    const alvo = st.f360.marcar; if (!alvo) return;
+    const { lat, lng } = ev.latlng;
+    if (alvo.novo) { const n = st.f360.novo; if (n) { n.nome = $('#f360-nome').value; n.lat = lat; n.lon = lng; n.doGps = false; } fecharMarcarF360(); return; }
+    fecharMarcarF360();
+    const f = alvo.foto;
+    const { error } = await sb.from('wg_foto360').upsert({ id: f.id, projeto_id: f.projeto_id, nome: f.nome, latitude: lat, longitude: lng,
+      caminho: f.caminho, miniatura: f.miniatura, largura: f.largura, altura: f.altura });
+    if (error) { toast('Não consegui salvar a localização: ' + (error.message || error)); return; }
+    toast('Localização salva.');
+    await carregarFotos360();
+  }
+
+  async function excluirFoto360(f, btn) {
+    btn.disabled = true; btn.textContent = 'Excluindo…';
+    const { data, error } = await sb.from('wg_foto360').delete().eq('id', f.id).select();
+    if (error || !data || !data.length) { btn.disabled = false; btn.textContent = 'Excluir'; delete btn.dataset.confirmar; toast('Não consegui excluir: ' + (error?.message || 'o banco não permitiu.')); return; }
+    sb.storage.from(BUCKET_FOTOS).remove([f.caminho, f.miniatura].filter(Boolean)).then(() => {}, () => {});
+    mapa.closePopup();
+    toast(`Foto "${f.nome}" excluída.`);
+    await carregarFotos360();
+  }
+
+  // ---- visor
+  async function verFoto360(f, blob = null) {
+    $('#visor360-nome').textContent = f.nome;
+    $('#visor360-info').textContent = f.latitude != null ? `${fmt(+f.latitude, 6)}, ${fmt(+f.longitude, 6)}` : 'sem localização';
+    const msg = $('#visor360-msg');
+    msg.textContent = 'Carregando foto…'; msg.hidden = false;
+    $('#visor360').hidden = false;
+    document.body.classList.add('visor-aberto');
+    $('#visor360-fechar').focus();
+    let src = null, temp = null;
+    try {
+      if (blob) src = temp = URL.createObjectURL(blob);
+      else src = await urlFoto(f.caminho);
+      const img = new Image();
+      if (!temp) img.crossOrigin = 'anonymous';
+      await new Promise((ok, falha) => { img.onload = ok; img.onerror = () => falha(new Error('Não consegui baixar a foto.')); img.src = src; });
+      if ($('#visor360').hidden) return;      // fechou enquanto carregava
+      if (visor) visor.destruir();
+      visor = Visor360.abrir($('#visor360-area'), img);
+      msg.hidden = true;
+    } catch (e) {
+      console.error(e);
+      msg.textContent = e.message || String(e);
+    } finally { if (temp) setTimeout(() => URL.revokeObjectURL(temp), 1000); }
+  }
+  function fecharVisor() {
+    if (visor) { visor.destruir(); visor = null; }
+    $('#visor360').hidden = true;
+    document.body.classList.remove('visor-aberto');
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+
+  function ligarEventosF360() {
+    $('#btn-f360-inserir').addEventListener('click', () => { if (!st.projetoId) { toast('Escolha um projeto primeiro.'); return; } $('#arquivo-f360').click(); });
+    $('#arquivo-f360').addEventListener('change', e => { const a = e.target.files[0]; e.target.value = ''; escolheuArquivoF360(a); });
+    $('#f-f360').addEventListener('change', e => { st.f360.mostrar = e.target.checked; renderF360Mapa(); });
+    $('#f360-lista').addEventListener('click', e => {
+      const b = e.target.closest('[data-acao]'), li = e.target.closest('li[data-id]'); if (!b || !li) return;
+      const f = st.f360.lista.find(x => String(x.id) === li.dataset.id); if (!f) return;
+      if (b.dataset.acao === 'ver') verFoto360(f);
+      if (b.dataset.acao === 'local') marcarLocalF360({ foto: f });
+    });
+    $('#f360-fechar').addEventListener('click', () => fecharModalF360());
+    $('#f360-cancelar').addEventListener('click', () => fecharModalF360());
+    $('#modal-f360').addEventListener('click', e => { if (e.target.id === 'modal-f360') fecharModalF360(); });
+    $('#f360-marcar').addEventListener('click', () => { if (st.f360.novo) st.f360.novo.nome = $('#f360-nome').value; marcarLocalF360({ novo: true }); });
+    $('#f360-previa-ver').addEventListener('click', () => { const n = st.f360.novo; if (n) verFoto360({ nome: $('#f360-nome').value || n.nome, latitude: n.lat, longitude: n.lon }, n.foto); });
+    $('#f360-salvar').addEventListener('click', salvarFoto360);
+    $('#f360-cancelar-marcar').addEventListener('click', fecharMarcarF360);
+    $('#visor360-fechar').addEventListener('click', fecharVisor);
+    $('#visor360-mais').addEventListener('click', () => visor && visor.zoom(0.8));
+    $('#visor360-menos').addEventListener('click', () => visor && visor.zoom(1.25));
+    $('#visor360-centro').addEventListener('click', () => visor && visor.centro());
+    $('#visor360-tela').addEventListener('click', () => {
+      const el = $('#visor360');
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      else if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+    });
+    document.addEventListener('keydown', e => {
+      if ($('#visor360').hidden) {
+        if (e.key === 'Escape' && st.f360.marcar) fecharMarcarF360();
+        return;
+      }
+      if (e.key === 'Escape' && !document.fullscreenElement) fecharVisor();
+      if (!visor) return;
+      const passos = { ArrowLeft: [-10, 0], ArrowRight: [10, 0], ArrowUp: [0, 8], ArrowDown: [0, -8] };
+      if (passos[e.key]) { e.preventDefault(); visor.girar(...passos[e.key]); }
+      if (e.key === '+' || e.key === '=') visor.zoom(0.8);
+      if (e.key === '-') visor.zoom(1.25);
+    });
   }
 
   // ------------------------------------------------------------- seção geológica (corte A–A')

@@ -124,6 +124,16 @@ e-mail (confirmação de conta, troca de senha).
 
 ---
 
+## Fotos 360° (14/10/2026)
+1. **Banco:** rode `banco/07_fotos_360.sql` no SQL Editor do Supabase (uma vez). As imagens usam o mesmo bucket das fotos do Perfil (`fotos-sondagem`), então não precisa criar bucket nem regra nova.
+2. **Publicar:** envie `index.html`, `script.js` e `style.css` ao GitHub.
+3. **Usar:** no menu, em **Fotos 360°**, clique em **Inserir foto 360°** e escolha a foto (JPG da câmera 360°, proporção 2:1).
+   - Se a câmera gravou o GPS, a localização já vem preenchida. Senão, clique em **Marcar no mapa** e clique no ponto onde a foto foi tirada.
+   - **Ver em 360° antes de salvar** abre o visor com a foto ainda no seu computador.
+   - O portal reduz a foto para no máximo 4096 x 2048 e abaixo de 1,8 MB antes de enviar. A original fica com você.
+4. **Ver:** clique no marcador **360°** no mapa (ou no nome na lista do menu) e em **Ver foto 360°**. Arraste para olhar em volta; roda do mouse ou pinça para aproximar; ⛶ para tela cheia; Esc fecha.
+5. **Mudar local / excluir:** pelo balão do marcador, ou **Local** na lista do menu. Excluir pede um segundo clique para confirmar.
+
 ## Seção geológica
 
 No menu, em **Seção geológica**, clique em **Traçar seção A–A'** e marque no mapa o início e o fim da linha (o clique gruda no poço mais próximo). Pode marcar pontos no meio para a linha fazer curva. Clique em **Concluir** (ou dê dois cliques rápidos no último ponto). Não precisa de nada novo no banco.

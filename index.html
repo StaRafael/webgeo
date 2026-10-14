@@ -209,6 +209,16 @@
       </div>
     </div>
 
+    <div class="rail-filtros rail-f360">
+      <div class="rail-projeto-cab"><span class="rail-projeto-label">Fotos 360° <span id="f360-conta"></span></span></div>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-f360-inserir">Inserir foto 360°</button>
+      <input type="file" id="arquivo-f360" accept="image/jpeg,image/png,image/webp" hidden>
+      <div id="f360-painel" class="pot-painel" hidden>
+        <label class="chk"><input type="checkbox" id="f-f360" checked><span class="box"></span><b>Mostrar no mapa</b></label>
+        <ul id="f360-lista" class="f360-lista"></ul>
+      </div>
+    </div>
+
     <div class="rail-foot">Os projetos são os mesmos do Perfil de Sondagem. As fichas com coordenada aparecem no mapa sozinhas; os resultados de laboratório entram pela planilha modelo (uma por campanha). Valores orientadores: CETESB DD 125/2021/E.</div>
   </aside>
 
@@ -256,6 +266,10 @@
               <button type="button" class="btn btn-ghost btn-sm2" id="secao-desfazer" disabled>Desfazer ponto</button>
               <button type="button" class="btn btn-ghost btn-sm2" id="secao-cancelar">Cancelar</button>
             </div>
+          </div>
+          <div id="f360-barra" class="ajuste-barra" hidden>
+            <div class="ajuste-texto"><b id="f360-passo">Clique no mapa onde a foto foi tirada</b><span>Dá para aproximar o mapa antes de clicar.</span></div>
+            <div class="ajuste-botoes"><button type="button" class="btn btn-ghost btn-sm2" id="f360-cancelar-marcar">Cancelar</button></div>
           </div>
           <div id="mapa"></div>
           <div class="legenda">
@@ -442,6 +456,50 @@
         <button type="submit" class="btn btn-primary" id="senha-salvar">Salvar senha</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Inserir foto 360° -->
+<div class="modal-fundo" id="modal-f360" hidden>
+  <div class="modal-caixa" role="dialog" aria-modal="true" aria-labelledby="modal-f360-tit">
+    <div class="modal-cab"><span id="modal-f360-tit">Inserir foto 360°</span>
+      <button type="button" class="modal-fechar" id="f360-fechar" aria-label="Fechar">✕</button></div>
+    <div class="modal-corpo">
+      <div class="f360-previa">
+        <img id="f360-previa-img" alt="Vista da frente da foto">
+        <button type="button" class="btn btn-ghost btn-sm2" id="f360-previa-ver">Ver em 360° antes de salvar</button>
+      </div>
+      <p class="f360-info" id="f360-previa-info"></p>
+      <p class="f360-aviso" id="f360-aviso" hidden></p>
+      <div class="field"><label for="f360-nome">Nome da foto</label><input type="text" id="f360-nome" maxlength="200" placeholder="ex.: Galpão 2 — área da caixa separadora"></div>
+      <div class="f360-local">
+        <div><span class="f360-local-tit">Localização</span><span id="f360-local-txt"></span></div>
+        <button type="button" class="btn btn-ghost btn-sm2" id="f360-marcar">Marcar no mapa</button>
+      </div>
+      <div class="auth-error" id="f360-erro" hidden></div>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-ghost" id="f360-cancelar">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="f360-salvar">Salvar foto</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Visor da foto 360° -->
+<div class="visor360" id="visor360" hidden role="dialog" aria-modal="true" aria-labelledby="visor360-nome">
+  <div class="visor360-cab">
+    <div class="visor360-tit"><b id="visor360-nome"></b><span id="visor360-info"></span></div>
+    <button type="button" class="visor360-btn" id="visor360-fechar" aria-label="Fechar">✕</button>
+  </div>
+  <div class="visor360-area" id="visor360-area"><div class="visor360-msg" id="visor360-msg">Carregando foto…</div></div>
+  <div class="visor360-rodape">
+    <span class="visor360-dica">Arraste para olhar em volta · roda do mouse ou pinça para aproximar</span>
+    <div class="visor360-ctl">
+      <button type="button" class="visor360-btn" id="visor360-menos" aria-label="Afastar" title="Afastar">−</button>
+      <button type="button" class="visor360-btn" id="visor360-mais" aria-label="Aproximar" title="Aproximar">+</button>
+      <button type="button" class="visor360-btn" id="visor360-centro" aria-label="Voltar para a frente" title="Voltar para a frente">⟲</button>
+      <button type="button" class="visor360-btn" id="visor360-tela" aria-label="Tela cheia" title="Tela cheia">⛶</button>
+    </div>
   </div>
 </div>
 
