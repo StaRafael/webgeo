@@ -18,7 +18,6 @@ Portal de monitoramento ambiental de poços (PM/PMN), irmão do **Perfil de Sond
 - **Relatório em PDF:** resumo, mapa, seção, evolução da pluma e tabela de resultados comparada com a CETESB.
 - **Papéis e equipe:** administrador e técnico; o administrador cuida da equipe pela tela Equipe.
 - **Conferência da importação:** alerta valores fora do histórico antes de gravar.
-- **Análise ambiental:** massa dissolvida e centro de massa da pluma por campanha, sentido e velocidade do fluxo, tendência de Mann-Kendall por poço, meia-vida e tempo até o VI.
 - **Planta em DXF:** a planta do projeto por cima do satélite, com camadas, cor e ajuste de posição por pontos.
 
 ## Como a pluma é calculada
@@ -27,13 +26,6 @@ Portal de monitoramento ambiental de poços (PM/PMN), irmão do **Perfil de Sond
 - **Poços no mesmo ponto:** poços a até 5 m um do outro (ex.: PM-26, PMN-26A, PMN-26B) contam como um ponto, com o maior valor. Para ver um nível só, use o filtro de rede.
 - **Fora da rede de poços:** o valor decai suavemente até o piso numa distância igual ao espaçamento local, fechando a pluma em curva.
 - **Desenho:** só é pintado o que passa do limiar (padrão = VI). Grade de 2 m; a linha do limiar é emendada e suavizada.
-
-## Como a análise ambiental é calculada
-- **Massa dissolvida:** Σ C × área da célula × b × ne nas células da pluma (mesmo limiar, IDW e rede do mapa). b, ne e K são digitados na página e ficam salvos no navegador, por projeto.
-- **Centro de massa:** média das posições ponderada pela concentração; o deslocamento entre campanhas é comparado com o sentido do fluxo.
-- **Fluxo por campanha:** a mesma superfície do potenciométrico, campanha a campanha. Velocidade = K × i ÷ ne.
-- **Mann-Kendall:** 4+ campanhas por poço, classes do MAROS; resultados < LQ entram como empate abaixo de qualquer valor medido.
-- **Atenuação:** reta de ln(C) × tempo (3+ valores quantificados): k, meia-vida e tempo até o VI.
 
 ## Como o potenciométrico é calculado
 - **Carga hidráulica:** cota do topo do poço menos o N.A. medido na campanha (aba Campo da planilha).

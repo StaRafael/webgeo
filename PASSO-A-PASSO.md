@@ -124,14 +124,6 @@ e-mail (confirmação de conta, troca de senha).
 
 ---
 
-## Análise ambiental (14/10/2026)
-Página nova no menu: **Análise ambiental**. Não precisa rodar SQL; basta publicar index.html, script.js e style.css.
-1. Escolha projeto, parâmetro e campanha no menu (os mesmos do mapa).
-2. Em **Dados do aquífero**, digite a espessura saturada b (m), a porosidade efetiva ne (padrão 0,20) e a condutividade K (cm/s, aceita 1e-4). Ficam salvos neste navegador, para cada projeto.
-3. A página mostra: massa dissolvida por campanha, trajetória do centro de massa com a seta do fluxo, tabela por campanha (massa, área, concentração média, deslocamento, fluxo, gradiente, velocidade e ângulo pluma × fluxo), gráfico de concentração ao longo do tempo (até 4 poços; clique nos nomes ou nas linhas da tabela) e tendência de Mann-Kendall por poço com meia-vida e tempo até o VI.
-4. **Exportar CSV** na seção D baixa a tabela de tendências.
-Precisa de: 3+ poços com resultado por campanha para a massa, 3+ poços com N.A. e cota para o fluxo, e 4+ campanhas por poço para a tendência.
-
 ## Seção geológica
 
 No menu, em **Seção geológica**, clique em **Traçar seção A–A'** e marque no mapa o início e o fim da linha (o clique gruda no poço mais próximo). Pode marcar pontos no meio para a linha fazer curva. Clique em **Concluir** (ou dê dois cliques rápidos no último ponto). Não precisa de nada novo no banco.
