@@ -114,6 +114,7 @@ e-mail (confirmação de conta, troca de senha).
 **Antes de usar:** rode `banco/05_papeis_e_equipe.sql` no SQL Editor do Supabase. Ele não apaga dados. Em toda empresa sem administrador, a conta mais antiga vira administradora.
 
 - **Papéis:** *Administrador* faz tudo; *Técnico* vê os dados, importa planilhas, insere planta e traça seções, mas não exclui projeto nem campanha e não vê a tela Equipe. O papel aparece embaixo do e-mail, no menu.
+- **Cadastro com tipo de conta** (tela de entrada do Perfil, aba *Criar conta*): rode antes `banco/06_cadastro_com_papel.sql` (depois do 05). A pessoa escolhe **Administrador** (informa o nome da empresa; a empresa é criada e ela entra direto como administradora) ou **Técnico** (a conta fica aguardando até um administrador adicionar pela tela Equipe). Ninguém vira administrador de uma empresa que já existe pelo cadastro.
 - **Equipe** (menu, só administrador): crie o usuário direto ali, com nome, e-mail, senha provisória (o botão *Gerar* sugere uma) e papel (Técnico ou Administrador). Passe o e-mail e a senha para a pessoa; ela troca a senha em **Trocar senha**, embaixo do e-mail no menu. Se a pessoa já tem conta (criou no Perfil), deixe a senha em branco que ela só é adicionada. Também dá para mudar o papel ou remover alguém. A empresa sempre fica com pelo menos um administrador.
 - **Confirmação de e-mail do Supabase:** se em *Authentication > Sign In / Providers > Email* a opção "Confirm email" estiver ligada, a pessoa criada recebe um e-mail e precisa clicar no link antes do primeiro acesso. Desligando, ela entra direto com a senha provisória. O Supabase também limita quantos e-mails de confirmação saem por hora no plano gratuito.
 - **Segurança:** o script também fecha uma brecha antiga: antes, uma pessoa logada conseguia mudar a própria empresa e o próprio papel direto no banco.
@@ -122,6 +123,14 @@ e-mail (confirmação de conta, troca de senha).
 - **Relatório (PDF):** botão no topo. Escolha as partes (resumo e mapa, seção, pluma e evolução, tabela de resultados com o VI de cada parâmetro, notas) e clique em *Gerar PDF*. Na janela de impressão, em "Destino", escolha *Salvar como PDF*. Desmarque "Cabeçalhos e rodapés" para não sair o endereço nas margens. O relatório sai sempre em fundo branco.
 
 ---
+
+## Análise ambiental (14/10/2026)
+Página nova no menu: **Análise ambiental**. Não precisa rodar SQL; basta publicar index.html, script.js e style.css.
+1. Escolha projeto, parâmetro e campanha no menu (os mesmos do mapa).
+2. Em **Dados do aquífero**, digite a espessura saturada b (m), a porosidade efetiva ne (padrão 0,20) e a condutividade K (cm/s, aceita 1e-4). Ficam salvos neste navegador, para cada projeto.
+3. A página mostra: massa dissolvida por campanha, trajetória do centro de massa com a seta do fluxo, tabela por campanha (massa, área, concentração média, deslocamento, fluxo, gradiente, velocidade e ângulo pluma × fluxo), gráfico de concentração ao longo do tempo (até 4 poços; clique nos nomes ou nas linhas da tabela) e tendência de Mann-Kendall por poço com meia-vida e tempo até o VI.
+4. **Exportar CSV** na seção D baixa a tabela de tendências.
+Precisa de: 3+ poços com resultado por campanha para a massa, 3+ poços com N.A. e cota para o fluxo, e 4+ campanhas por poço para a tendência.
 
 ## Seção geológica
 

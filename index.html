@@ -79,6 +79,7 @@
 
     <nav class="rail-nav">
       <button type="button" class="rail-item is-active" data-view="visao"><span class="rail-ico">◉</span>Mapa e resultados</button>
+      <button type="button" class="rail-item" data-view="analise"><span class="rail-ico">◭</span>Análise ambiental</button>
       <button type="button" class="rail-item" data-view="dados"><span class="rail-ico">☰</span>Tabela de dados</button>
       <button type="button" class="rail-item" data-view="importar"><span class="rail-ico">⇪</span>Importar planilha</button>
       <button type="button" class="rail-item" data-view="equipe" id="nav-equipe" hidden><span class="rail-ico">⚇</span>Equipe</button>
@@ -323,6 +324,86 @@
       </section>
       <div id="rel-tabela" class="so-relatorio rel-bloco"></div>
       <div id="rel-notas" class="so-relatorio rel-bloco"></div>
+    </div>
+
+    <!-- ============ ANÁLISE AMBIENTAL ============ -->
+    <div id="view-analise" class="view" hidden>
+      <section class="section">
+        <div class="section-head"><span class="section-num">A</span><h2>Dados do aquífero</h2><span class="hint">valem para este projeto · ficam salvos neste navegador</span></div>
+        <div class="section-body">
+          <div class="an-params">
+            <div class="field"><label for="an-b">Espessura saturada b (m)</label><input type="text" inputmode="decimal" id="an-b" placeholder="ex.: 5"></div>
+            <div class="field"><label for="an-ne">Porosidade efetiva ne</label><input type="text" inputmode="decimal" id="an-ne" placeholder="ex.: 0,20"></div>
+            <div class="field"><label for="an-k">Condutividade K (cm/s)</label><input type="text" inputmode="decimal" id="an-k" placeholder="ex.: 1e-4"></div>
+            <p class="an-params-nota" id="an-params-nota">A massa usa a pluma do mapa (mesmo limiar, IDW e rede). O fluxo usa a rede do mapa potenciométrico.</p>
+          </div>
+        </div>
+      </section>
+
+      <div class="kpis" id="an-kpis">
+        <div class="kpi"><span class="kpi-label" id="an-kpi-massa-lab">Massa dissolvida</span><span class="kpi-num"><span id="an-kpi-massa">—</span> <small id="an-kpi-massa-un"></small></span><span class="kpi-sub" id="an-kpi-massa-sub"></span></div>
+        <div class="kpi"><span class="kpi-label">Sentido do fluxo</span><span class="kpi-num"><span id="an-kpi-fluxo">—</span> <small id="an-kpi-fluxo-un"></small></span><span class="kpi-sub" id="an-kpi-fluxo-sub"></span></div>
+        <div class="kpi"><span class="kpi-label">Velocidade da água</span><span class="kpi-num"><span id="an-kpi-vel">—</span> <small id="an-kpi-vel-un"></small></span><span class="kpi-sub" id="an-kpi-vel-sub"></span></div>
+        <div class="kpi" id="an-kpi-tend-box"><span class="kpi-label">Poços com tendência de alta</span><span class="kpi-num" id="an-kpi-tend">—</span><span class="kpi-sub" id="an-kpi-tend-sub"></span></div>
+      </div>
+
+      <section class="section">
+        <div class="section-head"><span class="section-num">B</span><h2>Massa e migração da pluma</h2><span class="hint" id="an-massa-hint"></span></div>
+        <div class="section-body">
+          <div class="graficos">
+            <figure class="grafico">
+              <figcaption><b>Massa dissolvida</b><span id="an-g1-sub">kg por campanha</span></figcaption>
+              <div class="grafico-area"><canvas id="an-g-massa" aria-label="Massa dissolvida por campanha"></canvas></div>
+            </figure>
+            <figure class="grafico">
+              <figcaption><b>Centro de massa e sentido do fluxo</b><span id="an-g2-sub">posição por campanha</span></figcaption>
+              <div class="grafico-area an-svg-area" id="an-trajeto"></div>
+            </figure>
+          </div>
+          <div class="tbl-wrap tbl-evolucao">
+            <table class="dtbl" id="an-tabela-camp">
+              <thead><tr><th>Campanha</th><th>Data</th><th class="num">Massa (kg)</th><th class="num">Área (m²)</th><th class="num">Conc. média na pluma</th><th class="num">Centro de massa (desloc. desde a 1ª)</th><th class="num">Fluxo</th><th class="num">Gradiente i</th><th class="num">Velocidade (m/ano)</th><th class="num">Pluma × fluxo</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head"><span class="section-num">C</span><h2>Concentração ao longo do tempo</h2><span class="hint">escala log · até 4 poços · linha = VI</span></div>
+        <div class="section-body">
+          <div class="an-escolha" id="an-pocos-escolha"></div>
+          <figure class="grafico">
+            <figcaption><b id="an-g3-tit">Série histórica por poço</b><span id="an-g3-sub"></span></figcaption>
+            <div class="grafico-area an-alto"><canvas id="an-g-serie" aria-label="Concentração por poço ao longo do tempo"></canvas></div>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head"><span class="section-num">D</span><h2>Tendência por poço</h2><span class="hint">Mann-Kendall (classes do MAROS) · atenuação de 1ª ordem</span>
+          <button class="btn btn-ghost an-btn-csv" id="an-csv" type="button">Exportar CSV</button></div>
+        <div class="section-body">
+          <div class="an-resumo" id="an-resumo-tend"></div>
+          <div class="tbl-wrap">
+            <table class="dtbl" id="an-tabela-tend">
+              <thead><tr><th>Poço</th><th>Rede</th><th class="num">Campanhas</th><th class="num">Última</th><th class="num">Máxima</th><th class="num">S</th><th class="num">Confiança</th><th class="num">COV</th><th>Tendência</th><th class="num">k (1/ano)</th><th class="num">Meia-vida (anos)</th><th class="num">Tempo até o VI (anos)</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <details class="an-metodo">
+            <summary>Como cada número é calculado</summary>
+            <ul>
+              <li><b>Massa dissolvida</b> = Σ C × área da célula × b × ne, só nas células da pluma (valor interpolado ≥ limiar). Mostra a massa na água; a massa adsorvida no solo e em fase livre não entra.</li>
+              <li><b>Centro de massa</b> = média das posições das células ponderada pela concentração. O deslocamento entre campanhas mostra para onde a pluma está migrando.</li>
+              <li><b>Fluxo</b>: superfície potenciométrica de cada campanha (mesmo método do mapa). Velocidade = K × i ÷ ne (Darcy).</li>
+              <li><b>Pluma × fluxo</b>: ângulo entre o sentido do fluxo e o deslocamento do centro de massa desde a campanha anterior. Perto de 0° = a pluma acompanha a água; perto de 180° = recua.</li>
+              <li><b>Mann-Kendall</b> (4+ campanhas): S &gt; 0 sobe, S &lt; 0 desce. Confiança &gt; 95% = Crescente/Decrescente; 90–95% = Provavelmente; abaixo de 90% = Estável (se S ≤ 0 e COV &lt; 1) ou Sem tendência. Resultados &lt; LQ contam como empate, abaixo de qualquer valor medido.</li>
+              <li><b>Atenuação</b>: reta de ln(C) × tempo com os valores quantificados (3+). k &gt; 0 = queda; meia-vida = ln 2 ÷ k; tempo até o VI parte do valor ajustado na última campanha. É uma projeção, não uma garantia.</li>
+            </ul>
+          </details>
+        </div>
+      </section>
     </div>
 
     <!-- ============ TABELA ============ -->
