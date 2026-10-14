@@ -114,7 +114,7 @@
         <label class="chk"><input type="checkbox" id="f-pluma" checked><span class="box"></span><b>Mostrar pluma</b></label>
       </div>
       <div class="rail-projeto">
-        <label class="rail-projeto-label" for="f-limiar">Limiar (<span id="f-limiar-un">µg/L</span>)</label>
+        <label class="rail-projeto-label" for="f-limiar">Limite da pluma (<span id="f-limiar-un">µg/L</span>)</label>
         <input type="text" inputmode="decimal" id="f-limiar" class="rail-projeto-select" placeholder="VI">
       </div>
       <div class="rail-duplo">
@@ -270,7 +270,7 @@
           <div class="legenda legenda-pluma" id="legenda-pluma">
             <span class="leg-tit" id="leg-tit">Pluma (µg/L)</span>
             <span class="leg-rampa"><i id="leg-gradiente"></i><span id="leg-ticks" class="leg-ticks"></span></span>
-            <span><i class="leg-limiar"></i><span id="leg-limiar">Limiar</span></span>
+            <span><i class="leg-limiar"></i><span id="leg-limiar">Limite</span></span>
             <span><i class="leg-centro"></i>Centróide</span>
             <span><i class="leg-centro leg-centro-ini"></i>Centróide na 1ª campanha</span>
           </div>
@@ -305,8 +305,8 @@
           </div>
           <div class="graficos">
             <figure class="grafico">
-              <figcaption><b>Área acima do limiar</b><span id="g1-sub">m² por campanha</span></figcaption>
-              <div class="grafico-area"><canvas id="g-area" aria-label="Área acima do limiar por campanha"></canvas></div>
+              <figcaption><b>Área acima do limite</b><span id="g1-sub">m² por campanha</span></figcaption>
+              <div class="grafico-area"><canvas id="g-area" aria-label="Área acima do limite por campanha"></canvas></div>
             </figure>
             <figure class="grafico">
               <figcaption><b>Concentração máxima</b><span id="g2-sub">por campanha · escala log</span></figcaption>
@@ -315,7 +315,7 @@
           </div>
           <div class="tbl-wrap tbl-evolucao">
             <table class="dtbl" id="tabela-evolucao">
-              <thead><tr><th>Campanha</th><th>Data</th><th class="num">Poços analisados</th><th class="num">Acima do VI</th><th class="num">Conc. máxima</th><th class="num">Área ≥ limiar (m²)</th><th class="num">Centróide (desloc. desde a 1ª)</th></tr></thead>
+              <thead><tr><th>Campanha</th><th>Data</th><th class="num">Poços analisados</th><th class="num">Acima do VI</th><th class="num">Conc. máxima</th><th class="num">Área acima do limite (m²)</th><th class="num">Centróide (desloc. desde a 1ª)</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>

@@ -2509,7 +2509,7 @@ const WebGeo = (() => {
     const ticks = [vmin];
     for (let e = Math.ceil(Math.log10(vmin * 2)); Math.pow(10, e) <= vmax * 1.0001; e++) ticks.push(Math.pow(10, e));
     $('#leg-ticks').innerHTML = ticks.map(v => `<span style="left:${pos(v)}%">${fmt(v, 3)}</span>`).join('');
-    $('#leg-limiar').textContent = calc.limiar != null ? `Limiar (${fmt(calc.limiar, 4)} ${un})` : 'Limiar: sem VI, defina no menu';
+    $('#leg-limiar').textContent = calc.limiar != null ? `Limite (${fmt(calc.limiar, 4)} ${un})` : 'Limite: sem VI, defina no menu';
   }
 
   // ------------------------------------------------------------- mapa potenciométrico
@@ -3216,7 +3216,7 @@ const WebGeo = (() => {
     $('#rel-tabela').innerHTML = op.tabela ? tabelaRelatorio() : '';
     const notas = [
       `Valores orientadores: ${esc(st.parametros.find(p => p.referencia)?.referencia || 'CETESB DD 125/2021/E')}.`,
-      op.pluma ? `Pluma de ${esc(param?.nome || '')}: interpolação IDW em escala logarítmica (p = ${st.pluma.p}), célula de ${st.pluma.cel} m, limiar de ${fmt(limiar, 4)} ${esc(un)}. Valores abaixo do LQ entram como metade do LQ; poços a até 5 m um do outro contam como um ponto, com o maior valor.` : '',
+      op.pluma ? `Pluma de ${esc(param?.nome || '')}: interpolação IDW em escala logarítmica (p = ${st.pluma.p}), célula de ${st.pluma.cel} m, limite de ${fmt(limiar, 4)} ${esc(un)}. Valores abaixo do LQ entram como metade do LQ; poços a até 5 m um do outro contam como um ponto, com o maior valor.` : '',
       st.pot.ativa && st.potCalc?.sup ? `Potenciométrico: carga hidráulica = cota do topo − N.A.; superfície por spline de placa fina; ${esc($('#pot-resumo').textContent)}.` : '',
       op.secao && st.secao.linha ? 'Seção geológica: litologia das fichas do Perfil de Sondagem; o preenchimento entre as sondagens é uma interpretação automática.' : '',
       'Mapa: imagem de satélite Esri World Imagery.'
@@ -3275,14 +3275,14 @@ const WebGeo = (() => {
     const fa = a => a == null ? '—' : fmt(Math.round(a), 0);
     const semLimiar = !calc || calc.limiar == null;
     $('#pluma-hint').textContent = calc
-      ? `IDW em escala log, p = ${st.pluma.p} · célula ${calc.g.cel} m · limiar ${semLimiar ? '—' : fmt(calc.limiar, 4) + ' ' + un} · poços a até 5 m contam como um ponto (maior valor)`
+      ? `IDW em escala log, p = ${st.pluma.p} · célula ${calc.g.cel} m · limite ${semLimiar ? '—' : fmt(calc.limiar, 4) + ' ' + un} · poços a até 5 m contam como um ponto (maior valor)`
       : 'sem resultados deste parâmetro';
 
     $('#kpi-a1-lab').textContent = ini ? `Área na ${ini.campanha.codigo}` : 'Área na 1ª campanha';
     $('#kpi-a2-lab').textContent = sel ? `Área na ${sel.campanha.codigo}` : 'Área na campanha';
     $('#kpi-a1').textContent = fa(ini?.area);
     $('#kpi-a2').textContent = fa(sel?.area);
-    const sub = semLimiar ? 'defina o limiar' : `acima de ${fmt(calc.limiar, 4)} ${un}`;
+    const sub = semLimiar ? 'defina o limite' : `acima de ${fmt(calc.limiar, 4)} ${un}`;
     $('#kpi-a1-sub').textContent = ini ? sub : 'precisa de 3+ pontos com resultado';
     $('#kpi-a2-sub').textContent = sel?.v ? sub : 'precisa de 3+ pontos com resultado';
 
@@ -3293,7 +3293,7 @@ const WebGeo = (() => {
       $('#kpi-red-sub').textContent = red >= 0 ? `redução entre ${ini.campanha.codigo} e ${sel.campanha.codigo}` : `AUMENTO entre ${ini.campanha.codigo} e ${sel.campanha.codigo}`;
     } else {
       $('#kpi-red').textContent = '—';
-      $('#kpi-red-sub').textContent = comparar ? `sem área acima do limiar na ${ini.campanha.codigo}` : 'escolha outra campanha para comparar com a 1ª';
+      $('#kpi-red-sub').textContent = comparar ? `sem área acima do limite na ${ini.campanha.codigo}` : 'escolha outra campanha para comparar com a 1ª';
     }
     const d = comparar ? WGPluma.distancia(ini.centroide, sel.centroide) : null;
     $('#kpi-desl').textContent = d != null ? fmt(d, 1) : '—';
