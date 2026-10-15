@@ -658,3 +658,37 @@
     .visor360-rodape{justify-content:center;}
   }
   @media print{ .visor360,.rail-f360{display:none !important;} }
+
+  /* ---------- Diagrama de cercas 3D ---------- */
+  .cerca3d{position:fixed;inset:0;z-index:5000;background:var(--surface);color:var(--ink);display:flex;flex-direction:column;}
+  .cerca3d[hidden]{display:none;}
+  .cerca3d-cab{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--surface-alt);}
+  .cerca3d-cab > b{font-size:15px;}
+  .cerca3d-filtros{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;flex:1;}
+  .cerca3d-filtros > label:not(.chk){display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ink-soft);}
+  .cerca3d-filtros select{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:6px;padding:5px 8px;font:inherit;font-size:12.5px;font-weight:500;}
+  .cerca3d-filtros .chk{font-size:12.5px;}
+  .cerca3d-botoes{display:flex;align-items:center;gap:8px;}
+  .cerca3d-area{position:relative;flex:1;min-height:0;overflow:hidden;}
+  .cerca3d-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none;}
+  .cerca3d-canvas.arrastando{cursor:grabbing;}
+  .cerca3d-rotulos{position:absolute;inset:0;pointer-events:none;overflow:hidden;}
+  .cerca3d-rotulos span{position:absolute;left:0;top:0;font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--ink);white-space:nowrap;
+    text-shadow:0 0 3px var(--surface),0 0 3px var(--surface),0 0 3px var(--surface);}
+  .cerca3d-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:14px;color:var(--ink-soft);z-index:2;}
+  .cerca3d-msg[hidden]{display:none;}
+  .cerca3d-ctl{position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:6px;z-index:3;}
+  .cerca3d-ctl .visor360-btn{background:var(--surface);color:var(--ink);border-color:var(--line-strong);box-shadow:var(--shadow);}
+  .cerca3d-ctl .visor360-btn:hover{background:var(--surface-alt);border-color:var(--accent);}
+  .cerca3d-rodape{flex:none;padding:8px 16px 12px;border-top:1px solid var(--line);max-height:30vh;overflow:auto;}
+  .cerca3d-rodape .legenda{margin:0 0 4px;padding:0;}
+  .an-dica{position:fixed;z-index:6000;pointer-events:none;background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);
+    border-radius:6px;padding:6px 9px;font-size:12px;line-height:1.45;box-shadow:var(--shadow);max-width:260px;}
+  .an-dica[hidden]{display:none;}
+  #btn-cerca3d{margin-top:6px;}
+  @media (max-width: 640px){
+    .cerca3d-cab{padding:8px 10px;}
+    .cerca3d-filtros{gap:6px 10px;}
+  }
+  @media print{ .cerca3d{display:none !important;} }
+  .cerca3d-rodape .legenda-nota{display:block;padding:0;line-height:1.5;}

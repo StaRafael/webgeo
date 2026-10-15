@@ -134,6 +134,17 @@ e-mail (confirmação de conta, troca de senha).
 4. **Ver:** clique no marcador **360°** no mapa (ou no nome na lista do menu) e em **Ver foto 360°**. Arraste para olhar em volta; roda do mouse ou pinça para aproximar; ⛶ para tela cheia; Esc fecha.
 5. **Mudar local / excluir:** pelo balão do marcador, ou **Local** na lista do menu. Excluir pede um segundo clique para confirmar.
 
+## Diagrama de cercas 3D (15/10/2026)
+Não precisa rodar SQL; basta publicar `index.html`, `script.js` e `style.css`.
+1. No menu, em **Seção geológica**, clique em **Diagrama de cercas 3D** (ou em **Ver em 3D**, em cima da seção A–A').
+2. Em **Sondagens**, escolha:
+   - **Da seção A–A'**: as mesmas sondagens da seção traçada, na posição real, ligadas na ordem de A para A'.
+   - **Todas as sondagens**: todas as que têm litologia e coordenada (nas redes visíveis), ligadas pelo caminho mais curto entre elas, sem painel cruzando outro.
+3. **Arraste** para girar; **botão direito** ou **Shift + arrastar** para mover; **roda** ou pinça para aproximar. Os botões do lado direito aproximam, afastam, mostram de cima, voltam à vista inicial e põem em tela cheia.
+4. Passe o mouse numa sondagem para ver a camada naquela profundidade, a cota e o N.A.
+5. **Exagero vertical**, **Painéis** e **Nível d'água** ligam e desligam na hora. **Baixar imagem (PNG)** salva a vista atual com os nomes.
+Os painéis usam o mesmo preenchimento da seção 2D (liga camadas parecidas e afina as que não têm par): é uma interpretação automática e precisa de conferência.
+
 ## Seção geológica
 
 No menu, em **Seção geológica**, clique em **Traçar seção A–A'** e marque no mapa o início e o fim da linha (o clique gruda no poço mais próximo). Pode marcar pontos no meio para a linha fazer curva. Clique em **Concluir** (ou dê dois cliques rápidos no último ponto). Não precisa de nada novo no banco.

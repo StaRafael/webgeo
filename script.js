@@ -1652,7 +1652,387 @@ const Visor360 = (() => {
   return { abrir };
 })();
 
-if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf, WGPot, WGSecao, WGRevisao, WG360 };
+/* =====================================================================
+   3f. DIAGRAMA DE CERCAS 3D (funções puras, sem tela)
+   Monta os triângulos das colunas de sondagem e dos painéis entre elas.
+   Coordenadas em metros: x = leste, y = norte, z = cota (já com exagero).
+   Os painéis usam o mesmo preenchimento da seção 2D (WGSecao.preencher).
+   ===================================================================== */
+const WGCerca = (() => {
+  const rgb = h => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(h || '').trim());
+    if (!m) return [0.6, 0.6, 0.6];
+    const n = parseInt(m[1], 16);
+    return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255];
+  };
+
+  /** Árvore geradora mínima (Prim): liga todos os pontos sem cruzar, pelo caminho mais curto. Devolve [[i, j]]. */
+  function arvoreMinima(pts) {
+    const n = pts.length; if (n < 2) return [];
+    const dentro = new Array(n).fill(false), dist = new Array(n).fill(Infinity), pai = new Array(n).fill(-1), lig = [];
+    dist[0] = 0;
+    for (let k = 0; k < n; k++) {
+      let u = -1;
+      for (let i = 0; i < n; i++) if (!dentro[i] && (u < 0 || dist[i] < dist[u])) u = i;
+      dentro[u] = true;
+      if (pai[u] >= 0) lig.push([pai[u], u]);
+      for (let v = 0; v < n; v++) {
+        if (dentro[v]) continue;
+        const d = Math.hypot(pts[u].x - pts[v].x, pts[u].y - pts[v].y);
+        if (d < dist[v]) { dist[v] = d; pai[v] = u; }
+      }
+    }
+    return lig;
+  }
+
+  /** Poços no mesmo lugar (PM-26, PMN-26A...) ficam em roda, para as colunas não se sobreporem. */
+  function espalharColunas(cols, w) {
+    const usados = new Array(cols.length).fill(false);
+    cols.forEach((c, i) => {
+      if (usados[i]) return;
+      const g = [i];
+      for (let j = i + 1; j < cols.length; j++) if (!usados[j] && Math.hypot(cols[j].x - c.x, cols[j].y - c.y) < w * 1.6) g.push(j);
+      g.forEach(j => { usados[j] = true; });
+      if (g.length < 2) return;
+      const cx = g.reduce((s, j) => s + cols[j].x, 0) / g.length, cy = g.reduce((s, j) => s + cols[j].y, 0) / g.length;
+      const r = w * 0.9 / Math.sin(Math.PI / g.length);
+      g.forEach((j, k) => { const a = 2 * Math.PI * k / g.length; cols[j].x = cx + r * Math.cos(a); cols[j].y = cy + r * Math.sin(a); });
+    });
+    return cols;
+  }
+
+  /**
+   * cols: [{nome, x, y, cota, prof, camadas:[{de, ate, hex, lit}], na}]
+   * ligacoes: [[i, j]] (painéis); ex = exagero vertical; w = largura da coluna (m).
+   * Devolve { tri: {pos, cor, nor}, lin: {pos, cor}, caixa, rotulos, colunas }.
+   */
+  function geometria(cols, ligacoes, { ex = 1, w = 1, paineis = true, agua = true } = {}) {
+    const P = [], C = [], N = [], LP = [], LC = [];
+    const tri = (a, b, c, cor, n) => { P.push(...a, ...b, ...c); for (let k = 0; k < 3; k++) { C.push(...(Array.isArray(cor[0]) ? cor[k] : cor)); N.push(...n); } };
+    const quad = (a, b, c, d, cor, n) => { const cs = Array.isArray(cor[0]) ? cor : [cor, cor, cor, cor]; tri(a, b, c, [cs[0], cs[1], cs[2]], n); tri(a, c, d, [cs[0], cs[2], cs[3]], n); };
+    const linha = (a, b, cor) => { LP.push(...a, ...b); LC.push(...cor, ...cor); };
+    const Z = z => z * ex;
+    const AZUL = [0.08, 0.40, 0.66], TERRA = [0.48, 0.35, 0.18], CINZA = [0.72, 0.74, 0.73];
+
+    // painéis entre sondagens ligadas
+    let paineisFeitos = 0;
+    if (paineis) ligacoes.forEach(([i, j]) => {
+      const a = cols[i], b = cols[j];
+      if (!a.camadas.length || !b.camadas.length) return;
+      const L = Math.hypot(b.x - a.x, b.y - a.y); if (L < 1e-6) return;
+      const n = [-(b.y - a.y) / L, (b.x - a.x) / L, 0];
+      const F = WGSecao.preencher(a.camadas, b.camadas, a.cota, b.cota);
+      const pt = (s, prof) => [a.x + (b.x - a.x) * s, a.y + (b.y - a.y) * s, Z(a.cota + (b.cota - a.cota) * s - prof)];
+      F.faixas.forEach(f => {
+        const ca = f.ia != null ? F.a[f.ia] : null, cb = f.ib != null ? F.b[f.ib] : null;
+        const c0 = rgb((ca || cb).hex), c1 = rgb((cb || ca).hex);
+        for (let k = 0; k + 1 < F.s.length; k++) {
+          if (f.base[k] - f.topo[k] < 1e-4 && f.base[k + 1] - f.topo[k + 1] < 1e-4) continue;
+          const s0 = F.s[k], s1 = F.s[k + 1];
+          const mix = s => c0.map((v, q) => v + (c1[q] - v) * s);
+          quad(pt(s0, f.topo[k]), pt(s1, f.topo[k + 1]), pt(s1, f.base[k + 1]), pt(s0, f.base[k]), [mix(s0), mix(s1), mix(s1), mix(s0)], n);
+        }
+      });
+      // terreno (topo do painel) e nível d'água ao longo do painel
+      const off = [n[0] * w * 0.04, n[1] * w * 0.04, 0];
+      const lado = (p, sgn) => [p[0] + off[0] * sgn, p[1] + off[1] * sgn, p[2]];
+      linha(pt(0, 0), pt(1, 0), TERRA);
+      if (agua && a.na != null && b.na != null && (a.rede || '-') === (b.rede || '-')) {
+        const pa = [a.x, a.y, Z(a.cota - a.na)], pb = [b.x, b.y, Z(b.cota - b.na)];
+        [1, -1].forEach(sg => linha(lado(pa, sg), lado(pb, sg), AZUL));
+      }
+      paineisFeitos++;
+    });
+
+    // colunas: uma caixa por camada
+    const h = w / 2;
+    cols.forEach(c => {
+      const cam = c.camadas.length ? WGSecao.completar(c.camadas) : [{ de: 0, ate: Math.max(c.prof || 0, 0.5), hex: null, vazio: true }];
+      cam.forEach((r, q) => {
+        const cor = r.hex ? rgb(r.hex) : CINZA;
+        const zt = Z(c.cota - r.de), zb = Z(c.cota - r.ate);
+        const v = [[c.x - h, c.y - h], [c.x + h, c.y - h], [c.x + h, c.y + h], [c.x - h, c.y + h]];
+        const nn = [[0, -1, 0], [1, 0, 0], [0, 1, 0], [-1, 0, 0]];
+        for (let k = 0; k < 4; k++) {
+          const p0 = v[k], p1 = v[(k + 1) % 4];
+          quad([p0[0], p0[1], zt], [p1[0], p1[1], zt], [p1[0], p1[1], zb], [p0[0], p0[1], zb], cor, nn[k]);
+        }
+        if (q === 0) quad([v[0][0], v[0][1], zt], [v[1][0], v[1][1], zt], [v[2][0], v[2][1], zt], [v[3][0], v[3][1], zt], cor, [0, 0, 1]);
+        if (q === cam.length - 1) quad([v[0][0], v[0][1], zb], [v[3][0], v[3][1], zb], [v[2][0], v[2][1], zb], [v[1][0], v[1][1], zb], cor, [0, 0, -1]);
+      });
+      // contorno da coluna (arestas verticais) para separar do painel
+      const zt = Z(c.cota), zb = Z(c.cota - Math.max(c.prof || 0, cam[cam.length - 1].ate));
+      [[-h, -h], [h, -h], [h, h], [-h, h]].forEach(([dx, dy]) => linha([c.x + dx, c.y + dy, zt], [c.x + dx, c.y + dy, zb], [0.09, 0.15, 0.13]));
+      // anel azul no nível d'água
+      if (agua && c.na != null) {
+        const zn = Z(c.cota - c.na), r = h * 1.6;
+        const q4 = [[-r, -r], [r, -r], [r, r], [-r, r]];
+        for (let k = 0; k < 4; k++) linha([c.x + q4[k][0], c.y + q4[k][1], zn], [c.x + q4[(k + 1) % 4][0], c.y + q4[(k + 1) % 4][1], zn], AZUL);
+      }
+    });
+
+    // caixa e grade no plano da base
+    const xs = cols.map(c => c.x), ys = cols.map(c => c.y);
+    const zTop = Math.max(...cols.map(c => c.cota)), zBot = Math.min(...cols.map(c => c.cota - Math.max(c.prof || 0, c.na || 0, 0.5)));
+    const m = Math.max(2 * w, 0.06 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 10));
+    const caixa = { x0: Math.min(...xs) - m, x1: Math.max(...xs) + m, y0: Math.min(...ys) - m, y1: Math.max(...ys) + m, z0: Z(zBot), z1: Z(zTop), zTop, zBot };
+    const passo = passoGrade(Math.max(caixa.x1 - caixa.x0, caixa.y1 - caixa.y0));
+    const GRADE = [0.55, 0.6, 0.58];
+    for (let x = Math.ceil(caixa.x0 / passo) * passo; x <= caixa.x1; x += passo) linha([x, caixa.y0, caixa.z0], [x, caixa.y1, caixa.z0], GRADE);
+    for (let y = Math.ceil(caixa.y0 / passo) * passo; y <= caixa.y1; y += passo) linha([caixa.x0, y, caixa.z0], [caixa.x1, y, caixa.z0], GRADE);
+    caixa.passo = passo;
+
+    return {
+      tri: { pos: new Float32Array(P), cor: new Float32Array(C), nor: new Float32Array(N) },
+      lin: { pos: new Float32Array(LP), cor: new Float32Array(LC) },
+      caixa, paineis: paineisFeitos,
+      rotulos: cols.map(c => ({ nome: c.nome, x: c.x, y: c.y, z: Z(c.cota) }))
+    };
+  }
+  function passoGrade(ext) {
+    const alvo = ext / 8, p = Math.pow(10, Math.floor(Math.log10(Math.max(alvo, 1e-6))));
+    return [1, 2, 5, 10].map(k => k * p).find(v => v >= alvo) || 10 * p;
+  }
+
+  /** Exagero automático: o bloco fica com altura ~35% da largura. */
+  function exageroAuto(largura, altura) {
+    if (!(altura > 0) || !(largura > 0)) return 1;
+    const e = 0.35 * largura / altura;
+    const opcoes = [1, 2, 3, 5, 10, 20, 50];
+    return opcoes.reduce((m, v) => Math.abs(Math.log(v / e)) < Math.abs(Math.log(m / e)) ? v : m, 1);
+  }
+
+  return { rgb, arvoreMinima, espalharColunas, geometria, passoGrade, exageroAuto };
+})();
+
+/* =====================================================================
+   Visor 3D do diagrama de cercas: WebGL puro (sem biblioteca).
+   Girar = arrastar; mover = botão direito, Shift+arrastar ou dois dedos;
+   aproximar = roda ou pinça.
+   ===================================================================== */
+const Visor3D = (() => {
+  const VS = `attribute vec3 p; attribute vec3 c; attribute vec3 n;
+    uniform mat4 m; uniform vec3 luz; uniform float lit;
+    varying vec3 vc;
+    void main(){
+      gl_Position = m * vec4(p, 1.0);
+      float d = abs(dot(normalize(n), luz));
+      vc = lit > 0.5 ? c * (0.62 + 0.38 * d) : c;
+    }`;
+  const FS = `precision mediump float; varying vec3 vc; void main(){ gl_FragColor = vec4(vc, 1.0); }`;
+
+  // --- matrizes 4x4 (coluna principal, como o WebGL espera)
+  const mul = (a, b) => { const r = new Float32Array(16); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + j] * b[i * 4 + k]; r[i * 4 + j] = s; } return r; };
+  const persp = (fov, asp, n, f) => { const t = 1 / Math.tan(fov / 2); return new Float32Array([t / asp, 0, 0, 0, 0, t, 0, 0, 0, 0, (f + n) / (n - f), -1, 0, 0, 2 * f * n / (n - f), 0]); };
+  function olhar(o, alvo, cima) {
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const cruz = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const nor = a => { const l = Math.hypot(...a) || 1; return a.map(v => v / l); };
+    const z = nor(sub(o, alvo)), x = nor(cruz(cima, z)), y = cruz(z, x);
+    const d = v => -(v[0] * o[0] + v[1] * o[1] + v[2] * o[2]);
+    return new Float32Array([x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, d(x), d(y), d(z), 1]);
+  }
+
+  function abrir(area, opcoes = {}) {
+    const cv = document.createElement('canvas');
+    cv.className = 'cerca3d-canvas';
+    area.appendChild(cv);
+    const camRot = document.createElement('div'); camRot.className = 'cerca3d-rotulos'; area.appendChild(camRot);
+    const gl = cv.getContext('webgl', { antialias: true, preserveDrawingBuffer: true });
+    if (!gl) { cv.remove(); camRot.remove(); return null; }
+    const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { cv.remove(); camRot.remove(); return null; }
+    gl.useProgram(prog);
+    const A = { p: gl.getAttribLocation(prog, 'p'), c: gl.getAttribLocation(prog, 'c'), n: gl.getAttribLocation(prog, 'n') };
+    const U = { m: gl.getUniformLocation(prog, 'm'), luz: gl.getUniformLocation(prog, 'luz'), lit: gl.getUniformLocation(prog, 'lit') };
+    gl.enable(gl.DEPTH_TEST);
+    gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);   // as linhas ficam por cima das faces
+    const bufs = [];
+    const novoBuf = dados => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, dados, gl.STATIC_DRAW); bufs.push(b); return b; };
+    let G = null, B = null, rotulos = [];
+    const cam = { yaw: -35, pitch: 32, dist: 100, alvo: [0, 0, 0] };
+    let fundo = [1, 1, 1], vistaIni = { yaw: -35, pitch: 32 };
+
+    // o mundo do WebGL tem y para cima: (x, y, z) dos dados -> (x, z, -y)
+    const mundo = (x, y, z) => [x, z, -y];
+    function matriz() {
+      const W = cv.width, H = cv.height;
+      const yr = cam.yaw * Math.PI / 180, pr = cam.pitch * Math.PI / 180;
+      const o = [cam.alvo[0] + cam.dist * Math.cos(pr) * Math.sin(yr), cam.alvo[1] + cam.dist * Math.sin(pr), cam.alvo[2] + cam.dist * Math.cos(pr) * Math.cos(yr)];
+      return { M: mul(persp(45 * Math.PI / 180, W / H, cam.dist / 200, cam.dist * 20), olhar(o, cam.alvo, [0, 1, 0])), o };
+    }
+    function projetar(M, x, y, z) {
+      const [a, b, c] = mundo(x, y, z);
+      const X = M[0] * a + M[4] * b + M[8] * c + M[12], Y = M[1] * a + M[5] * b + M[9] * c + M[13], Wc = M[3] * a + M[7] * b + M[11] * c + M[15];
+      if (Wc <= 0) return null;
+      return [(X / Wc * 0.5 + 0.5) * cv.clientWidth, (1 - (Y / Wc * 0.5 + 0.5)) * cv.clientHeight];
+    }
+
+    let pedido = 0, vivo = true;
+    function desenhar() {
+      pedido = 0; if (!vivo) return;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const W = Math.max(1, Math.round(cv.clientWidth * dpr)), H = Math.max(1, Math.round(cv.clientHeight * dpr));
+      if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+      gl.viewport(0, 0, W, H);
+      gl.clearColor(fundo[0], fundo[1], fundo[2], 1);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      if (!G) return;
+      const { M } = matriz();
+      gl.uniformMatrix4fv(U.m, false, M);
+      const yr = cam.yaw * Math.PI / 180;
+      const l = [Math.sin(yr + 0.6) * 0.75, 0.55, Math.cos(yr + 0.6) * 0.75], ll = Math.hypot(...l);
+      gl.uniform3f(U.luz, l[0] / ll, l[1] / ll, l[2] / ll);
+      const ligar = (buf, loc, n) => { if (loc < 0) return; gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, n, gl.FLOAT, false, 0, 0); };
+      if (B.nt) {
+        gl.uniform1f(U.lit, 1);
+        ligar(B.tp, A.p, 3); ligar(B.tc, A.c, 3); ligar(B.tn, A.n, 3);
+        gl.drawArrays(gl.TRIANGLES, 0, B.nt);
+      }
+      if (B.nl) {
+        gl.uniform1f(U.lit, 0);
+        ligar(B.lp, A.p, 3); ligar(B.lc, A.c, 3);
+        if (A.n >= 0) { gl.disableVertexAttribArray(A.n); gl.vertexAttrib3f(A.n, 0, 1, 0); }
+        gl.drawArrays(gl.LINES, 0, B.nl);
+      }
+      // nomes das sondagens
+      rotulos.forEach(r => {
+        const s = projetar(M, r.x, r.y, r.z);
+        if (!s) { r.el.hidden = true; return; }
+        r.el.hidden = false; r.el.style.transform = `translate(${s[0].toFixed(1)}px, ${s[1].toFixed(1)}px) translate(-50%, -150%)`;
+      });
+      if (opcoes.aoDesenhar) opcoes.aoDesenhar();
+    }
+    const pedir = () => { if (!pedido) pedido = requestAnimationFrame(desenhar); };
+
+    /** Distância da câmera para a caixa toda caber na tela (com margem), na direção atual. */
+    function enquadrar(k) {
+      if (!cv.clientWidth) { cv.width = 800; cv.height = 500; }
+      const cantos = [];
+      [k.x0, k.x1].forEach(x => [k.y0, k.y1].forEach(y => [k.z0, k.z1].forEach(z => cantos.push([x, y, z]))));
+      const diag = Math.hypot(k.x1 - k.x0, k.y1 - k.y0, k.z1 - k.z0) || 10;
+      const cabe = () => {
+        const { M } = matriz();
+        return cantos.every(([x, y, z]) => {
+          const [a, b, c] = mundo(x, y, z);
+          const X = M[0] * a + M[4] * b + M[8] * c + M[12], Y = M[1] * a + M[5] * b + M[9] * c + M[13], Wc = M[3] * a + M[7] * b + M[11] * c + M[15];
+          return Wc > 0 && Math.abs(X / Wc) < 0.94 && Math.abs(Y / Wc) < 0.9;
+        });
+      };
+      let lo = diag * 0.1, hi = diag * 4;
+      for (let q = 0; q < 30; q++) { cam.dist = (lo + hi) / 2; if (cabe()) hi = cam.dist; else lo = cam.dist; }
+      cam.dist = hi;
+    }
+
+    // os dados chegam em (x leste, y norte, z cota); passam para o mundo do WebGL
+    function trocarGeometria(g, { reenquadrar = false } = {}) {
+      bufs.forEach(b => gl.deleteBuffer(b)); bufs.length = 0;
+      const conv = arr => { const o = new Float32Array(arr.length); for (let i = 0; i < arr.length; i += 3) { o[i] = arr[i]; o[i + 1] = arr[i + 2]; o[i + 2] = -arr[i + 1]; } return o; };
+      B = {
+        tp: novoBuf(conv(g.tri.pos)), tc: novoBuf(g.tri.cor), tn: novoBuf(conv(g.tri.nor)), nt: g.tri.pos.length / 3,
+        lp: novoBuf(conv(g.lin.pos)), lc: novoBuf(g.lin.cor), nl: g.lin.pos.length / 3
+      };
+      const k = g.caixa;
+      const centro = mundo((k.x0 + k.x1) / 2, (k.y0 + k.y1) / 2, (k.z0 + k.z1) / 2);
+      if (reenquadrar || !G) { cam.alvo = centro; enquadrar(k); }
+      else { cam.alvo[1] = centro[1]; }                 // trocou o exagero: mantém a vista, ajusta a altura
+      G = g;
+      camRot.innerHTML = '';
+      rotulos = g.rotulos.map(r => { const el = document.createElement('span'); el.textContent = r.nome; camRot.appendChild(el); return { ...r, el }; });
+      pedir();
+    }
+
+    // mouse e toque
+    const toques = new Map(); let pinca = null, modo = null;
+    cv.addEventListener('contextmenu', e => e.preventDefault());
+    cv.addEventListener('pointerdown', e => {
+      cv.setPointerCapture(e.pointerId); toques.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      modo = (e.button === 2 || e.shiftKey) ? 'mover' : 'girar'; cv.classList.add('arrastando');
+    });
+    function mover(dx, dy) {
+      const yr = cam.yaw * Math.PI / 180, k = cam.dist * 0.0016;
+      const dir = [Math.cos(yr), 0, -Math.sin(yr)];
+      cam.alvo[0] -= dir[0] * dx * k; cam.alvo[2] -= dir[2] * dx * k; cam.alvo[1] += dy * k;
+    }
+    cv.addEventListener('pointermove', e => {
+      const a = toques.get(e.pointerId);
+      if (!a) { if (opcoes.aoPassar) opcoes.aoPassar(e); return; }
+      const dx = e.clientX - a.x, dy = e.clientY - a.y;
+      a.x = e.clientX; a.y = e.clientY;
+      if (toques.size === 2) {
+        const [p1, p2] = [...toques.values()], d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        if (pinca) { cam.dist = Math.max(1, pinca.dist * pinca.d / Math.max(10, d)); mover(dx / 2, dy / 2); } else pinca = { d, dist: cam.dist };
+      } else if (modo === 'mover') mover(dx, dy);
+      else { cam.yaw -= dx * 0.4; cam.pitch = Math.max(-5, Math.min(89, cam.pitch + dy * 0.3)); }
+      pedir();
+    });
+    const soltar = e => { toques.delete(e.pointerId); pinca = null; if (!toques.size) { modo = null; cv.classList.remove('arrastando'); } };
+    cv.addEventListener('pointerup', soltar); cv.addEventListener('pointercancel', soltar);
+    cv.addEventListener('pointerleave', () => { if (opcoes.aoSair) opcoes.aoSair(); });
+    cv.addEventListener('wheel', e => { e.preventDefault(); cam.dist = Math.max(1, cam.dist * Math.exp(e.deltaY * 0.0012)); pedir(); }, { passive: false });
+    const ro = window.ResizeObserver ? new ResizeObserver(pedir) : null;
+    if (ro) ro.observe(cv); else window.addEventListener('resize', pedir);
+
+    return {
+      trocarGeometria,
+      fundo(c) { fundo = c; pedir(); },
+      /** Direção inicial da câmera (graus): usada agora e no botão "voltar à vista inicial". */
+      vistaInicial(yaw, pitch) { vistaIni = { yaw, pitch }; cam.yaw = yaw; cam.pitch = pitch; },
+      vista(qual) {
+        if (!G) return;
+        if (qual === 'cima') { cam.pitch = 89; cam.yaw = 0; }
+        else if (qual === 'inicio') { cam.yaw = vistaIni.yaw; cam.pitch = vistaIni.pitch; trocarGeometria(G, { reenquadrar: true }); return; }
+        pedir();
+      },
+      zoom(k) { cam.dist = Math.max(1, cam.dist * k); pedir(); },
+      girar(d) { cam.yaw += d; pedir(); },
+      /** Ponto da tela -> coluna mais próxima (para a dica ao passar o mouse). */
+      colunaEm(px, py, cols, ex, w) {
+        if (!G) return null;
+        const { M, o } = matriz(); let melhor = null;
+        cols.forEach((c, i) => {
+          const fundo = Math.max(c.prof || 0, 0.5);
+          const t = projetar(M, c.x, c.y, c.cota * ex), b = projetar(M, c.x, c.y, (c.cota - fundo) * ex);
+          if (!t || !b) return;
+          const vx = b[0] - t[0], vy = b[1] - t[1], L2 = vx * vx + vy * vy || 1;
+          const s = Math.max(0, Math.min(1, ((px - t[0]) * vx + (py - t[1]) * vy) / L2));
+          const d = Math.hypot(px - t[0] - vx * s, py - t[1] - vy * s);
+          if (d > 12) return;
+          const p = mundo(c.x, c.y, (c.cota - s * fundo) * ex), longe = Math.hypot(p[0] - o[0], p[1] - o[1], p[2] - o[2]);
+          if (!melhor || longe < melhor.longe) melhor = { i, prof: s * fundo, longe };
+        });
+        return melhor;
+      },
+      /** Imagem PNG com os nomes das sondagens. */
+      imagem() {
+        desenhar();
+        const out = document.createElement('canvas'); out.width = cv.width; out.height = cv.height;
+        const ctx = out.getContext('2d'); ctx.drawImage(cv, 0, 0);
+        const k = cv.width / cv.clientWidth, { M } = matriz();
+        ctx.font = `600 ${Math.round(11 * k)}px "IBM Plex Mono", monospace`; ctx.textAlign = 'center';
+        rotulos.forEach(r => {
+          const s = projetar(M, r.x, r.y, r.z); if (!s) return;
+          const x = s[0] * k, y = s[1] * k - 8 * k;
+          ctx.lineWidth = 3 * k; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(r.nome, x, y);
+          ctx.fillStyle = '#172621'; ctx.fillText(r.nome, x, y);
+        });
+        return out.toDataURL('image/png');
+      },
+      destruir() {
+        vivo = false; if (pedido) cancelAnimationFrame(pedido);
+        if (ro) ro.disconnect(); else window.removeEventListener('resize', pedir);
+        bufs.forEach(b => gl.deleteBuffer(b)); gl.deleteProgram(prog);
+        const ext = gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext();
+        cv.remove(); camRot.remove();
+      }
+    };
+  }
+  return { abrir };
+})();
+
+if (typeof module !== 'undefined') module.exports = { WGImport, WGPluma, WGDxf, WGPot, WGSecao, WGRevisao, WG360, WGCerca };
 
 /* =====================================================================
    4. APLICAÇÃO (tela)
@@ -1785,6 +2165,7 @@ const WebGeo = (() => {
     $('#f-campanha').addEventListener('change', e => { st.campanhaId = +e.target.value; aplicarPapel(); render(); });
     $('#btn-csv').addEventListener('click', exportarCSV);
     ligarEventosF360();
+    ligarEventosCerca();
 
     // Planta em DXF
     $('#btn-planta-inserir').addEventListener('click', () => $('#arquivo-dxf').click());
@@ -3407,6 +3788,169 @@ const WebGeo = (() => {
     if (st.secao.ligar && comLito.length > 1) notas.push('o preenchimento entre as sondagens é uma interpretação automática (liga camadas parecidas e afina as que não têm par) e precisa de conferência');
     $('#secao-nota').textContent = notas.join(' · ') + '. Passe o mouse sobre uma sondagem para ver os detalhes.';
     $('#secao-hint').textContent = `${cols.length} ponto(s) · ${fmt(d.comp, 0)} m`;
+  }
+
+  // ------------------------------------------------------------- diagrama de cercas 3D
+  let visor3d = null;
+  const cerca = { modo: 'secao', exag: 0, paineis: true, agua: true, cols: [], ex: 1, w: 1 };
+
+  /** Sondagens do diagrama, com posição em metros (x leste, y norte) e cota relativa ao ponto mais alto. */
+  function colunasCerca(modo) {
+    let base = [];
+    if (modo === 'secao') {
+      const d = st.secao.linha ? montarSecao() : null;
+      base = d ? d.cols.map(c => ({ ...c })) : [];
+    } else {
+      const { pocos, porPoco } = selecao();
+      const cand = pocos.filter(p => p.latitude !== null).map(p => ({ p, lat: +p.latitude, lon: +p.longitude }));
+      if (!st.redesOcultas.has('Sondagens')) st.soltas.forEach(f => cand.push({ f, lat: f.latitude, lon: f.longitude }));
+      base = cand.map(c => Object.assign(colunaSecao(c.p || null, c.f || null), { ll: [c.lat, c.lon], res: c.p ? (porPoco.get(c.p.id) || null) : null }))
+        .filter(c => c.camadas.length);
+      const comCota = st.pocos.filter(p => p.latitude !== null && p.cota_topo != null);
+      base.forEach(c => {
+        if (c.cota != null) return;
+        c.cotaEstimada = true;
+        if (!comCota.length) { c.cota = 0; return; }
+        const k = Math.cos(c.ll[0] * Math.PI / 180), d = p => Math.hypot(+p.latitude - c.ll[0], (+p.longitude - c.ll[1]) * k);
+        const perto = comCota.reduce((a, b) => d(b) < d(a) ? b : a);
+        c.cota = +perto.cota_topo;
+      });
+      base.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true }));
+    }
+    if (!base.length) return { cols: [], semDatum: false };
+    const lat0 = base.reduce((s, c) => s + c.ll[0], 0) / base.length, lon0 = base.reduce((s, c) => s + c.ll[1], 0) / base.length;
+    const proj = WGPluma.projecao(lat0, lon0);
+    const zRef = Math.max(...base.map(c => c.cota));
+    const semDatum = !st.pocos.some(p => p.cota_topo != null);
+    base.forEach(c => { const xy = proj.paraXY(c.ll[0], c.ll[1]); c.x = xy.x; c.y = xy.y; c.cotaReal = c.cota; c.cota = c.cota - zRef; });
+    return { cols: base, semDatum };
+  }
+
+  function montarCerca3D(reenquadrar = false) {
+    const { cols, semDatum } = colunasCerca(cerca.modo);
+    cerca.cols = cols; cerca.semDatum = semDatum;
+    const msg = $('#cerca3d-msg');
+    if (!cols.length) {
+      msg.hidden = false;
+      msg.textContent = cerca.modo === 'secao'
+        ? (st.secao.linha ? 'Nenhuma sondagem perto da linha da seção. Aumente a faixa no menu ou use "Todas as sondagens".' : 'Ainda não há seção traçada. Use "Todas as sondagens" ou trace a seção A–A\' no mapa.')
+        : 'Nenhuma sondagem com litologia e coordenada neste projeto (e nas redes visíveis).';
+      if (visor3d) visor3d.trocarGeometria(WGCerca.geometria([{ nome: '', x: 0, y: 0, cota: 0, prof: 0, camadas: [] }], [], {}), { reenquadrar: true });
+      $('#cerca3d-legenda').innerHTML = ''; $('#cerca3d-nota').textContent = '';
+      return;
+    }
+    msg.hidden = true;
+    const ext = Math.max(10, Math.max(...cols.map(c => c.x)) - Math.min(...cols.map(c => c.x)), Math.max(...cols.map(c => c.y)) - Math.min(...cols.map(c => c.y)));
+    cerca.w = Math.max(0.4, ext / 70);
+    WGCerca.espalharColunas(cols, cerca.w);
+    const alt = Math.max(1, Math.max(...cols.map(c => c.cota)) - Math.min(...cols.map(c => c.cota - Math.max(c.prof, c.na || 0, 0.5))));
+    cerca.ex = cerca.exag || WGCerca.exageroAuto(ext, alt);
+    let lig;
+    if (cerca.modo === 'secao') {
+      const comLito = cols.map((c, i) => i).filter(i => cols[i].camadas.length);
+      lig = comLito.slice(1).map((j, q) => [comLito[q], j]);
+    } else lig = WGCerca.arvoreMinima(cols);
+    const g = WGCerca.geometria(cols, lig, { ex: cerca.ex, w: cerca.w, paineis: cerca.paineis, agua: cerca.agua });
+    if (reenquadrar) {
+      // seção: de frente para a linha A–A' (A à esquerda), um pouco de lado e de cima; todas: vista oblíqua
+      if (cerca.modo === 'secao' && cols.length > 1) {
+        const a = cols[0], b = cols[cols.length - 1];
+        visor3d.vistaInicial(Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI - 20, 22);
+      } else visor3d.vistaInicial(-35, 32);
+    }
+    visor3d.trocarGeometria(g, { reenquadrar });
+
+    // legenda e nota
+    const litos = new Map();
+    cols.forEach(c => c.camadas.forEach(r => { const k = WGSecao.chaveLit(r.lit) + '|' + r.hex; if (!litos.has(k)) litos.set(k, { hex: r.hex, texto: [r.lit, r.cor].filter(Boolean).join(' · ') || 'sem descrição' }); }));
+    let leg = [...litos.values()].map(l => `<span><i class="leg-lito" style="background:${esc(l.hex)}"></i>${esc(l.texto)}</span>`).join('');
+    leg += `<span><i class="leg-terreno"></i>Terreno</span>`;
+    if (cerca.agua && cols.some(c => c.na != null)) leg += `<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#1565A8" stroke-width="2"/></svg>Nível d'água</span>`;
+    $('#cerca3d-legenda').innerHTML = leg;
+    const camp = st.campanhas.find(c => c.id === st.campanhaId);
+    const notas = [`${cols.length} sondagem(ns)`, `${g.paineis} painel(is)`, `exagero vertical ${cerca.ex}x`, `grade de ${fmt(g.caixa.passo, 0)} m`];
+    if (cerca.modo === 'todas') notas.push('ligação automática pelo caminho mais curto entre as sondagens (sem cruzar)');
+    if (cols.some(c => c.naFonte === 'campanha') && camp) notas.push(`N.A. da campanha ${camp.codigo}`);
+    if (semDatum) notas.push('nenhum poço tem cota: todos os topos no mesmo nível');
+    else if (cols.some(c => c.cotaEstimada)) notas.push('algumas sondagens sem cota usam a do poço mais próximo');
+    notas.push('os painéis são uma interpretação automática (o mesmo critério da seção 2D) e precisam de conferência');
+    $('#cerca3d-nota').textContent = notas.join(' · ') + '.';
+  }
+
+  function abrirCerca3D(modo) {
+    if (!st.projetoId) { toast('Escolha um projeto primeiro.'); return; }
+    const novoModo = modo || (st.secao.linha ? 'secao' : 'todas');
+    if (novoModo !== cerca.modo) cerca.exag = 0;
+    cerca.modo = novoModo;
+    $('#cerca3d-modo').value = cerca.modo;
+    $('#cerca3d-exag').value = String(cerca.exag);
+    $('#cerca3d-paineis').checked = cerca.paineis;
+    $('#cerca3d-agua').checked = cerca.agua;
+    $('#cerca3d').hidden = false;
+    document.body.classList.add('visor-aberto');
+    if (!visor3d) {
+      visor3d = Visor3D.abrir($('#cerca3d-area'), { aoPassar: dicaCerca, aoSair: () => { $('#cerca3d-dica').hidden = true; } });
+      if (!visor3d) { $('#cerca3d-msg').hidden = false; $('#cerca3d-msg').textContent = 'Este navegador não tem WebGL (3D). Tente o Chrome, o Edge ou o Firefox atualizados.'; return; }
+    }
+    const s = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim();
+    visor3d.fundo(WGCerca.rgb(s.length === 7 ? s : '#ffffff'));
+    montarCerca3D(true);
+  }
+  function fecharCerca3D() {
+    if (visor3d) { visor3d.destruir(); visor3d = null; }
+    $('#cerca3d').hidden = true; $('#cerca3d-dica').hidden = true;
+    document.body.classList.remove('visor-aberto');
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+
+  function dicaCerca(e) {
+    const dica = $('#cerca3d-dica');
+    const r = $('#cerca3d-area').getBoundingClientRect();
+    const h = visor3d && visor3d.colunaEm(e.clientX - r.left, e.clientY - r.top, cerca.cols, cerca.ex, cerca.w);
+    if (!h) { dica.hidden = true; return; }
+    const c = cerca.cols[h.i];
+    const cam = c.camadas.find(x => h.prof >= x.de && h.prof <= x.ate);
+    const linhas = [`<b>${esc(c.nome)}</b>${c.rede && c.rede !== '-' ? ' · ' + esc(c.rede) : ''}`];
+    if (cam) linhas.push(`${fmt(cam.de)}–${fmt(cam.ate)} m: ${esc([cam.lit, cam.cor].filter(Boolean).join(', ') || 'sem descrição')}`);
+    if (!cerca.semDatum) linhas.push(`Cota do topo: ${fmt(c.cotaReal, 2)} m${c.cotaEstimada ? ' (estimada)' : ''}`);
+    if (c.prof) linhas.push(`Profundidade: ${fmt(c.prof)} m`);
+    if (c.na != null) linhas.push(`N.A.: ${fmt(c.na)} m`);
+    dica.innerHTML = linhas.join('<br>');
+    dica.hidden = false;
+    dica.style.left = Math.min(e.clientX + 14, window.innerWidth - 270) + 'px'; dica.style.top = (e.clientY + 12) + 'px';
+  }
+
+  function ligarEventosCerca() {
+    $('#btn-cerca3d').addEventListener('click', () => abrirCerca3D());
+    $('#btn-secao-3d').addEventListener('click', () => abrirCerca3D('secao'));
+    $('#cerca3d-fechar').addEventListener('click', fecharCerca3D);
+    $('#cerca3d-modo').addEventListener('change', e => { cerca.modo = e.target.value; cerca.exag = 0; $('#cerca3d-exag').value = '0'; montarCerca3D(true); });
+    $('#cerca3d-exag').addEventListener('change', e => { cerca.exag = +e.target.value; montarCerca3D(false); });
+    $('#cerca3d-paineis').addEventListener('change', e => { cerca.paineis = e.target.checked; montarCerca3D(false); });
+    $('#cerca3d-agua').addEventListener('change', e => { cerca.agua = e.target.checked; montarCerca3D(false); });
+    $('#cerca3d-cima').addEventListener('click', () => visor3d && visor3d.vista('cima'));
+    $('#cerca3d-inicio').addEventListener('click', () => visor3d && visor3d.vista('inicio'));
+    $('#cerca3d-mais').addEventListener('click', () => visor3d && visor3d.zoom(0.8));
+    $('#cerca3d-menos').addEventListener('click', () => visor3d && visor3d.zoom(1.25));
+    $('#cerca3d-png').addEventListener('click', () => {
+      if (!visor3d || !cerca.cols.length) return;
+      const a = document.createElement('a');
+      const proj = st.projetos.find(p => p.id === st.projetoId);
+      a.href = visor3d.imagem(); a.download = `cercas_3d_${(proj?.nome || 'projeto').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w-]+/g, '_')}.png`; a.click();
+    });
+    $('#cerca3d-tela').addEventListener('click', () => {
+      const el = $('#cerca3d');
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+    });
+    document.addEventListener('keydown', e => {
+      if ($('#cerca3d').hidden || e.target.closest('select,input')) return;
+      if (e.key === 'Escape' && !document.fullscreenElement) fecharCerca3D();
+      if (!visor3d) return;
+      if (e.key === 'ArrowLeft') visor3d.girar(-8);
+      if (e.key === 'ArrowRight') visor3d.girar(8);
+      if (e.key === '+' || e.key === '=') visor3d.zoom(0.8);
+      if (e.key === '-') visor3d.zoom(1.25);
+    });
   }
 
   /** Baixa o desenho da seção em SVG (abre no navegador, no Inkscape, no CorelDRAW e no AutoCAD mais novo). */

@@ -162,6 +162,7 @@
     <div class="rail-filtros rail-secao">
       <div class="rail-projeto-cab"><span class="rail-projeto-label">Seção geológica</span></div>
       <button type="button" class="btn btn-ghost btn-sm" id="btn-secao-tracar">Traçar seção A–A'</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-cerca3d">Diagrama de cercas 3D</button>
       <div id="secao-painel" class="pot-painel" hidden>
         <div class="rail-duplo">
           <div class="rail-projeto">
@@ -301,7 +302,7 @@
       <section class="section" id="sec-secao" hidden>
         <div class="section-head"><span class="section-num">A</span><h2>Seção geológica A–A'</h2><span class="hint" id="secao-hint"></span></div>
         <div class="section-body">
-          <div class="secao-acoes"><button type="button" class="btn btn-ghost btn-sm2" id="btn-secao-baixar">Baixar imagem (SVG)</button></div>
+          <div class="secao-acoes"><button type="button" class="btn btn-ghost btn-sm2" id="btn-secao-3d">Ver em 3D</button><button type="button" class="btn btn-ghost btn-sm2" id="btn-secao-baixar">Baixar imagem (SVG)</button></div>
           <div id="secao-desenho" class="secao-desenho"></div>
           <div class="legenda" id="secao-legenda"></div>
           <div class="legenda-nota" id="secao-nota"></div>
@@ -502,6 +503,39 @@
     </div>
   </div>
 </div>
+
+<!-- Diagrama de cercas 3D -->
+<div class="cerca3d" id="cerca3d" hidden role="dialog" aria-modal="true" aria-labelledby="cerca3d-tit">
+  <div class="cerca3d-cab">
+    <b id="cerca3d-tit">Diagrama de cercas 3D</b>
+    <div class="cerca3d-filtros">
+      <label>Sondagens
+        <select id="cerca3d-modo"><option value="secao">Da seção A–A'</option><option value="todas">Todas as sondagens</option></select></label>
+      <label>Exagero vertical
+        <select id="cerca3d-exag"><option value="0">Automático</option><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option><option value="20">20x</option><option value="50">50x</option></select></label>
+      <label class="chk"><input type="checkbox" id="cerca3d-paineis" checked><span class="box"></span>Painéis</label>
+      <label class="chk"><input type="checkbox" id="cerca3d-agua" checked><span class="box"></span>Nível d'água</label>
+    </div>
+    <div class="cerca3d-botoes">
+      <button type="button" class="btn btn-ghost btn-sm2" id="cerca3d-png">Baixar imagem (PNG)</button>
+      <button type="button" class="modal-fechar" id="cerca3d-fechar" aria-label="Fechar">✕</button>
+    </div>
+  </div>
+  <div class="cerca3d-area" id="cerca3d-area"><div class="cerca3d-msg" id="cerca3d-msg" hidden></div>
+    <div class="cerca3d-ctl">
+      <button type="button" class="visor360-btn" id="cerca3d-mais" title="Aproximar" aria-label="Aproximar">+</button>
+      <button type="button" class="visor360-btn" id="cerca3d-menos" title="Afastar" aria-label="Afastar">−</button>
+      <button type="button" class="visor360-btn" id="cerca3d-cima" title="Ver de cima" aria-label="Ver de cima">⊤</button>
+      <button type="button" class="visor360-btn" id="cerca3d-inicio" title="Voltar à vista inicial" aria-label="Voltar à vista inicial">⟲</button>
+      <button type="button" class="visor360-btn" id="cerca3d-tela" title="Tela cheia" aria-label="Tela cheia">⛶</button>
+    </div>
+  </div>
+  <div class="cerca3d-rodape">
+    <div class="legenda" id="cerca3d-legenda"></div>
+    <div class="legenda-nota"><b>Arraste</b> para girar · <b>botão direito</b> ou <b>Shift</b> + arrastar para mover · <b>roda</b> ou pinça para aproximar · passe o mouse numa sondagem para ver a camada. <span id="cerca3d-nota"></span></div>
+  </div>
+</div>
+<div class="an-dica" id="cerca3d-dica" hidden></div>
 
 <!-- Relatório da campanha (PDF) -->
 <div class="modal-fundo" id="modal-relatorio" hidden>
