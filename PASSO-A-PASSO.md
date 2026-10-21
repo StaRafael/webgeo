@@ -138,6 +138,7 @@ e-mail (confirmação de conta, troca de senha).
 1. **Banco:** rode `banco/09_editar_pessoa.sql` no Supabase (uma vez, depois do 05). Na versão MySQL basta o `api/api.php` novo (sem SQL).
 2. **Publicar:** `script.js` e `style.css`.
 3. **Usar:** tela **Equipe** (só administrador) → **Editar** na linha da pessoa → mude o nome e/ou o e-mail → **Salvar** (ou Enter; Esc cancela). O e-mail novo passa a valer para entrar no WebGeo e no Perfil de Sondagem; a senha continua a mesma. Avisa se o e-mail é inválido ou já é de outra conta.
+4. **Nome da empresa:** no topo da tela Equipe, campo **Nome da empresa** + **Salvar**. Vale também para o Perfil de Sondagem (mesma tabela `organizations`).
 
 ## Anotações do projeto (21/10/2026)
 1. **Banco:** rode `banco/08_anotacoes.sql` no SQL Editor do Supabase (uma vez). Na versão MySQL: `banco-mysql/05_anotacoes.sql` no phpMyAdmin e o `api/api.php` novo.

@@ -6,11 +6,12 @@
 
 // ---------------------------------------------------------------------
 // Conexão com o Supabase: o MESMO projeto do Perfil de Sondagem (mesmo
-// login, mesma empresa). A chave publishable é pública por natureza — quem
-// protege os dados de cada empresa são as regras de segurança (RLS) do banco.
+// login, mesma empresa). Endereço e chave vêm do config.js de cada ambiente
+// (prod, qa, dev). A chave anon é pública por natureza — quem protege os
+// dados de cada empresa são as regras de segurança (RLS) do banco.
 // ---------------------------------------------------------------------
-const SUPABASE_URL = 'https://wbocmpekamjfwkwmxtjd.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_rackRbyFgs42jUbWBu0Krw_tn7VTJOw';
+const SUPABASE_URL = window.APP_CONFIG.supabaseUrl;
+const SUPABASE_ANON_KEY = window.APP_CONFIG.supabaseAnonKey;
 
 
 /* =====================================================================
@@ -4113,7 +4114,48 @@ const WebGeo = (() => {
     if (!adm && !$('#view-equipe').hidden) trocarView('visao');
   }
 
+  /** Nome da empresa no topo da tela Equipe (o bloco é criado aqui, sem precisar mexer no index.html). */
+  function montarEmpresaEquipe() {
+    let d = $('#equipe-empresa');
+    if (!d) {
+      d = document.createElement('div');
+      d.id = 'equipe-empresa'; d.className = 'equipe-empresa';
+      d.innerHTML = `<div class="field"><label for="equipe-empresa-nome">Nome da empresa</label>
+          <input type="text" id="equipe-empresa-nome" maxlength="200" autocomplete="organization" placeholder="Nome da empresa"></div>
+        <button type="button" class="btn btn-primary" id="equipe-empresa-salvar">Salvar</button>
+        <span class="equipe-empresa-msg" id="equipe-empresa-msg" aria-live="polite"></span>`;
+      $('#view-equipe .equipe-corpo').prepend(d);
+      $('#equipe-empresa-salvar').addEventListener('click', salvarEmpresa);
+      $('#equipe-empresa-nome').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); salvarEmpresa(); } });
+      $('#equipe-empresa-nome').addEventListener('input', () => { $('#equipe-empresa-msg').textContent = ''; });
+    }
+    $('#equipe-empresa-nome').value = st.org?.name || '';
+    $('#equipe-empresa-msg').textContent = '';
+  }
+
+  async function salvarEmpresa() {
+    const nome = $('#equipe-empresa-nome').value.trim(), msg = $('#equipe-empresa-msg'), btn = $('#equipe-empresa-salvar');
+    msg.className = 'equipe-empresa-msg';
+    if (!nome) { msg.classList.add('erro'); msg.textContent = 'Digite o nome da empresa.'; return; }
+    if (nome === (st.org?.name || '')) { msg.textContent = 'Nada mudou.'; return; }
+    btn.disabled = true; btn.textContent = 'Salvando...';
+    const { error } = await sb.rpc('wg_editar_empresa', { p_nome: nome });
+    btn.disabled = false; btn.textContent = 'Salvar';
+    if (error) {
+      msg.classList.add('erro');
+      msg.textContent = /function .*wg_editar_empresa|could not find|Função desconhecida/i.test(error.message)
+        ? 'Ainda não liberado no banco: rode o 09_editar_pessoa.sql de novo (ele foi atualizado).' : error.message;
+      return;
+    }
+    if (st.org) st.org.name = nome;
+    $('#rail-user-org').textContent = nome;
+    if ($('#imp-empresa')) $('#imp-empresa').textContent = nome;
+    msg.classList.add('ok'); msg.textContent = 'Salvo.';
+    toast('Nome da empresa salvo. Vale também para o Perfil de Sondagem.');
+  }
+
   async function carregarEquipe() {
+    montarEmpresaEquipe();
     const corpo = $('#equipe-tabela tbody');
     corpo.innerHTML = '<tr><td colspan="5" class="muted">Carregando...</td></tr>';
     const { data, error } = await sb.rpc('wg_equipe', {});
