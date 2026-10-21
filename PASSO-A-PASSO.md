@@ -134,6 +134,18 @@ e-mail (confirmação de conta, troca de senha).
 4. **Ver:** clique no marcador **360°** no mapa (ou no nome na lista do menu) e em **Ver foto 360°**. Arraste para olhar em volta; roda do mouse ou pinça para aproximar; ⛶ para tela cheia; Esc fecha.
 5. **Mudar local / excluir:** pelo balão do marcador, ou **Local** na lista do menu. Excluir pede um segundo clique para confirmar.
 
+## Equipe: editar nome e e-mail (21/10/2026)
+1. **Banco:** rode `banco/09_editar_pessoa.sql` no Supabase (uma vez, depois do 05). Na versão MySQL basta o `api/api.php` novo (sem SQL).
+2. **Publicar:** `script.js` e `style.css`.
+3. **Usar:** tela **Equipe** (só administrador) → **Editar** na linha da pessoa → mude o nome e/ou o e-mail → **Salvar** (ou Enter; Esc cancela). O e-mail novo passa a valer para entrar no WebGeo e no Perfil de Sondagem; a senha continua a mesma. Avisa se o e-mail é inválido ou já é de outra conta.
+
+## Anotações do projeto (21/10/2026)
+1. **Banco:** rode `banco/08_anotacoes.sql` no SQL Editor do Supabase (uma vez). Na versão MySQL: `banco-mysql/05_anotacoes.sql` no phpMyAdmin e o `api/api.php` novo.
+2. **Publicar:** envie `index.html`, `script.js` e `style.css`.
+3. **Usar:** menu **Anotações**. Um texto por projeto, que a equipe toda da empresa vê e edita. Salva sozinho 1,5 s depois que você para de digitar (ou Ctrl+S). Embaixo aparece quando e por quem foi a última alteração.
+4. Se duas pessoas editarem ao mesmo tempo, aparece um aviso com **Ver a versão salva** ou **Salvar a minha por cima**: ninguém perde texto sem saber.
+5. No **Relatório (PDF)**, a opção **Anotações do projeto** coloca o texto no relatório.
+
 ## Diagrama de cercas 3D (15/10/2026)
 Não precisa rodar SQL; basta publicar `index.html`, `script.js` e `style.css`.
 1. No menu, em **Seção geológica**, clique em **Diagrama de cercas 3D** (ou em **Ver em 3D**, em cima da seção A–A').

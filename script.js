@@ -2063,6 +2063,7 @@ const WebGeo = (() => {
     potCalc: null,                // superfície potenciométrica da campanha selecionada
     secao: { tracando: null, linha: null, faixa: 10, exag: 0, ligar: true }, // seção geológica A–A' (exag 0 = automático)
     secaoCalc: null,
+    anot: { projeto: null, texto: '', base: '', versao: null, autor: null, erro: null, sujo: false, salvando: false, timer: null, conflito: null }, // anotações do projeto
     f360: { lista: [], erro: null, mostrar: true, novo: null, marcar: null, urls: new Map() }, // fotos 360° do projeto              // sondagens que entram no corte
     planta: null, plantaLL: null, plantaErro: null, dxfNovo: null, ajuste: null // planta em DXF do projeto
   };
@@ -2165,6 +2166,7 @@ const WebGeo = (() => {
     $('#f-campanha').addEventListener('change', e => { st.campanhaId = +e.target.value; aplicarPapel(); render(); });
     $('#btn-csv').addEventListener('click', exportarCSV);
     ligarEventosF360();
+    ligarEventosAnotacao();
     ligarEventosCerca();
 
     // Planta em DXF
@@ -2215,7 +2217,18 @@ const WebGeo = (() => {
     $('#senha-cancelar').addEventListener('click', fecharSenha);
     $('#senha-form').addEventListener('submit', salvarSenha);
     $('#equipe-tabela').addEventListener('change', e => { if (e.target.classList.contains('equipe-papel')) mudarPapel(e.target.closest('tr').dataset.id, e.target.value); });
-    $('#equipe-tabela').addEventListener('click', e => { if (e.target.classList.contains('equipe-remover')) removerPessoa(e.target.closest('tr').dataset.id); });
+    $('#equipe-tabela').addEventListener('click', e => {
+      const tr = e.target.closest('tr'), c = e.target.classList;
+      if (c.contains('equipe-remover')) removerPessoa(tr.dataset.id);
+      if (c.contains('equipe-editar')) editarLinhaEquipe(tr);
+      if (c.contains('equipe-salvar')) salvarLinhaEquipe(tr);
+      if (c.contains('equipe-cancelar')) { $('#equipe-erro').hidden = true; carregarEquipe(); }
+    });
+    $('#equipe-tabela').addEventListener('keydown', e => {
+      const tr = e.target.closest('tr.editando'); if (!tr || e.target.tagName !== 'INPUT') return;
+      if (e.key === 'Enter') { e.preventDefault(); salvarLinhaEquipe(tr); }
+      if (e.key === 'Escape') { $('#equipe-erro').hidden = true; carregarEquipe(); }
+    });
     // relatório
     $('#btn-relatorio').addEventListener('click', abrirRelatorio);
     $('#rel-fechar').addEventListener('click', fecharRelatorio);
@@ -2261,6 +2274,7 @@ const WebGeo = (() => {
     document.querySelectorAll('.rail-nav [data-view]').forEach(b => b.classList.toggle('is-active', b.dataset.view === v));
     document.querySelectorAll('.view').forEach(s => { s.hidden = s.id !== 'view-' + v; });
     if (v === 'equipe') carregarEquipe();
+    if (v === 'anotacoes') { renderAnotacao(); setTimeout(() => $('#anot-texto').focus(), 0); }
     if (v === 'visao' && mapa) setTimeout(() => {
       mapa.invalidateSize();
       if (st.enquadrarPendente) enquadrarMapa();
@@ -2306,6 +2320,7 @@ const WebGeo = (() => {
         st.campanhas = []; st.pocos = []; st.resultados = []; st.medicoes = []; st.soltas = [];
         await carregarPlanta();
         await carregarFotos360();
+        await carregarAnotacao();
         carregarSecao();
         render(); trocarView('importar'); return;
       }
@@ -2622,6 +2637,7 @@ const WebGeo = (() => {
       juntarFichas(pocos, fichas);
       await carregarPlanta();
       await carregarFotos360();
+      await carregarAnotacao();
       carregarSecao();
 
       // Parâmetros com resultado neste projeto; começa pelo que tem mais poços acima do VI
@@ -3482,6 +3498,120 @@ const WebGeo = (() => {
     });
   }
 
+  // ------------------------------------------------------------- anotações do projeto
+  const ESPERA_SALVAR = 1500;   // salva sozinho 1,5 s depois que a pessoa para de digitar
+
+  async function carregarAnotacao() {
+    const a = st.anot;
+    if (a.sujo && a.projeto && a.projeto !== st.projetoId) await salvarAnotacao({ forcar: true });   // trocou de projeto com texto por salvar
+    clearTimeout(a.timer);
+    Object.assign(a, { projeto: st.projetoId, texto: '', base: '', versao: null, autor: null, erro: null, sujo: false, conflito: null });
+    if (st.projetoId) {
+      const { data, error } = await sb.from('wg_anotacao').select('*').eq('projeto_id', st.projetoId);
+      if (st.projetoId !== a.projeto) return;                 // trocou de projeto enquanto carregava
+      if (error) { a.erro = error.message || String(error); console.warn('Anotações:', a.erro); }
+      else if (data && data.length) Object.assign(a, { texto: data[0].texto || '', base: data[0].texto || '', versao: data[0].atualizado_em, autor: data[0].atualizado_por_nome });
+    }
+    $('#anot-texto').value = a.texto;
+    renderAnotacao();
+  }
+
+  function renderAnotacao(estado) {
+    const a = st.anot, proj = st.projetos.find(p => p.id === st.projetoId);
+    $('#anot-projeto').textContent = proj ? proj.nome : '';
+    $('#anot-texto').disabled = !st.projetoId || !!a.erro;
+    $('#anot-texto').placeholder = st.projetoId
+      ? 'Escreva aqui o que a equipe precisa saber deste projeto: histórico da área, combinados com o cliente, pendências de campo, observações das campanhas...'
+      : 'Escolha um projeto no menu.';
+    const n = $('#anot-texto').value.length;
+    $('#anot-conta').textContent = n ? `${n.toLocaleString('pt-BR')} caractere${n === 1 ? '' : 's'}` : '';
+    const s = $('#anot-status');
+    s.className = 'anot-status';
+    if (a.erro) { s.classList.add('erro'); s.innerHTML = 'As anotações ainda não estão liberadas no banco. Rode o arquivo <b>08_anotacoes.sql</b> (Supabase) ou <b>05_anotacoes.sql</b> (MySQL).'; }
+    else if (estado === 'salvando') s.textContent = 'Salvando…';
+    else if (estado === 'falhou') { s.classList.add('erro'); s.textContent = 'Não consegui salvar. Confira a internet; vou tentar de novo quando você voltar a digitar.'; }
+    else if (a.sujo) s.textContent = 'Alterações ainda não salvas…';
+    else if (a.versao) { s.classList.add('ok'); s.textContent = `Salvo · última alteração em ${new Date(a.versao).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}${a.autor ? ' por ' + a.autor : ''}`; }
+    else s.textContent = st.projetoId ? 'Nenhuma anotação ainda. O texto é salvo sozinho enquanto você escreve.' : '';
+    $('#anot-conflito').hidden = !a.conflito;
+    if (a.conflito) $('#anot-conflito-txt').textContent = `${a.conflito.autor || 'Outra pessoa'} salvou outra versão em ${new Date(a.conflito.versao).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}, enquanto você editava.`;
+  }
+
+  function digitouAnotacao() {
+    const a = st.anot; if (!a.projeto || a.erro) return;
+    a.sujo = $('#anot-texto').value !== a.base;
+    clearTimeout(a.timer);
+    if (a.sujo && !a.conflito) a.timer = setTimeout(() => salvarAnotacao(), ESPERA_SALVAR);
+    renderAnotacao();
+  }
+
+  /** Grava o texto. Antes confere se ninguém salvou outra versão no meio do caminho. */
+  async function salvarAnotacao({ forcar = false } = {}) {
+    const a = st.anot, proj = a.projeto;
+    if (!proj || !a.sujo || a.salvando || a.erro) return;
+    clearTimeout(a.timer);
+    a.salvando = true;
+    const texto = $('#anot-texto').value;            // o campo ainda mostra o texto deste projeto (é trocado só depois de salvar)
+    a.texto = texto;
+    if (proj === st.projetoId) renderAnotacao('salvando');
+    try {
+      if (!forcar) {
+        const { data, error } = await sb.from('wg_anotacao').select('texto, atualizado_em, atualizado_por_nome').eq('projeto_id', proj);
+        if (error) throw error;
+        const r = data && data[0];
+        if (r && r.atualizado_em !== a.versao && (r.texto || '') !== a.base && (r.texto || '') !== texto) {
+          a.conflito = { texto: r.texto || '', versao: r.atualizado_em, autor: r.atualizado_por_nome };
+          a.salvando = false;
+          if (proj === st.projetoId) renderAnotacao();
+          return;
+        }
+      }
+      const { error } = await sb.from('wg_anotacao').upsert({ projeto_id: proj, texto, atualizado_por_nome: (st.profile?.full_name || st.user?.email || '').slice(0, 200) });
+      if (error) throw error;
+      const { data } = await sb.from('wg_anotacao').select('atualizado_em, atualizado_por_nome').eq('projeto_id', proj);
+      if (proj !== st.projetoId) return;
+      a.base = texto; a.conflito = null;
+      if (data && data[0]) { a.versao = data[0].atualizado_em; a.autor = data[0].atualizado_por_nome; }
+      a.sujo = $('#anot-texto').value !== a.base;               // continuou digitando enquanto salvava
+      if (a.sujo) a.timer = setTimeout(() => salvarAnotacao(), ESPERA_SALVAR);
+    } catch (e) {
+      console.error(e);
+      if (proj === st.projetoId) { a.salvando = false; renderAnotacao('falhou'); return; }
+    } finally { a.salvando = false; }
+    if (proj === st.projetoId) renderAnotacao();
+  }
+
+  function resolverConflito(qual) {
+    const a = st.anot, c = a.conflito; if (!c) return;
+    if (qual === 'deles') {
+      Object.assign(a, { texto: c.texto, base: c.texto, versao: c.versao, autor: c.autor, sujo: false, conflito: null });
+      $('#anot-texto').value = c.texto;
+      renderAnotacao();
+      toast('Carregada a versão salva por ' + (c.autor || 'outra pessoa') + '.');
+    } else {
+      a.conflito = null;
+      salvarAnotacao({ forcar: true }).then(() => toast('A sua versão foi salva.'));
+    }
+  }
+
+  function ligarEventosAnotacao() {
+    const t = $('#anot-texto');
+    t.addEventListener('input', digitouAnotacao);
+    t.addEventListener('blur', () => { if (st.anot.sujo && !st.anot.conflito) salvarAnotacao(); });
+    t.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (!st.anot.conflito) salvarAnotacao(); } });
+    $('#anot-manter-minha').addEventListener('click', () => resolverConflito('minha'));
+    $('#anot-usar-deles').addEventListener('click', () => resolverConflito('deles'));
+    window.addEventListener('beforeunload', e => { if (st.anot.sujo) { salvarAnotacao({ forcar: true }); e.preventDefault(); e.returnValue = ''; } });
+  }
+
+  /** Bloco das anotações no relatório em PDF (mantém as quebras de linha). */
+  function anotacaoRelatorio() {
+    const a = st.anot, texto = ($('#anot-texto').value || '').trim();
+    if (!texto) return '';
+    const quando = a.versao ? `Última alteração em ${new Date(a.versao).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}${a.autor ? ' por ' + esc(a.autor) : ''}.` : '';
+    return `<h2>Anotações do projeto</h2><div class="rel-anot-texto">${esc(texto)}</div>${quando ? `<p class="rel-anot-quando">${quando}</p>` : ''}`;
+  }
+
   // ------------------------------------------------------------- seção geológica (corte A–A')
   const chaveSecao = () => 'webgeo.secao.' + (st.projetoId || '');
   const NOME_FIM_SECAO = "A'";
@@ -3988,6 +4118,7 @@ const WebGeo = (() => {
     corpo.innerHTML = '<tr><td colspan="5" class="muted">Carregando...</td></tr>';
     const { data, error } = await sb.rpc('wg_equipe', {});
     if (error) { corpo.innerHTML = `<tr><td colspan="5" class="erro">${esc(error.message)}</td></tr>`; return; }
+    st.equipe = data || [];
     corpo.innerHTML = (data || []).map(p => {
       const eu = p.id === st.user.id;
       return `<tr data-id="${esc(p.id)}">
@@ -3997,8 +4128,41 @@ const WebGeo = (() => {
           <option value="tecnico"${p.papel === 'tecnico' ? ' selected' : ''}>Técnico</option>
           <option value="admin"${p.papel === 'admin' ? ' selected' : ''}>Administrador</option></select></td>
         <td>${fmtData(p.desde)}</td>
-        <td class="num"><button type="button" class="btn-mini btn-mini-perigo equipe-remover">${eu ? 'Sair da empresa' : 'Remover'}</button></td></tr>`;
+        <td class="num equipe-acoes"><button type="button" class="btn-mini equipe-editar">Editar</button><button type="button" class="btn-mini btn-mini-perigo equipe-remover">${eu ? 'Sair da empresa' : 'Remover'}</button></td></tr>`;
     }).join('') || '<tr><td colspan="5" class="muted">Ninguém na equipe.</td></tr>';
+  }
+
+  /** Linha da equipe vira formulário: nome e e-mail editáveis, com Salvar e Cancelar. */
+  function editarLinhaEquipe(tr) {
+    const p = (st.equipe || []).find(x => String(x.id) === tr.dataset.id); if (!p) return;
+    const aberta = $('#equipe-tabela tr.editando'); if (aberta && aberta !== tr) carregarEquipe();   // só uma por vez
+    tr.classList.add('editando');
+    tr.children[0].innerHTML = `<input type="text" class="equipe-ed-nome" maxlength="200" value="${esc(p.nome || '')}" placeholder="Nome e sobrenome" aria-label="Nome">`;
+    tr.children[1].innerHTML = `<input type="email" class="equipe-ed-email" maxlength="190" value="${esc(p.email || '')}" placeholder="nome@empresa.com.br" aria-label="E-mail">`;
+    tr.children[4].innerHTML = `<button type="button" class="btn btn-primary btn-sm2 equipe-salvar">Salvar</button><button type="button" class="btn-mini equipe-cancelar">Cancelar</button>`;
+    tr.querySelector('.equipe-ed-nome').focus();
+  }
+
+  async function salvarLinhaEquipe(tr) {
+    const p = (st.equipe || []).find(x => String(x.id) === tr.dataset.id); if (!p) return;
+    const nome = tr.querySelector('.equipe-ed-nome').value.trim(), email = tr.querySelector('.equipe-ed-email').value.trim().toLowerCase();
+    const erro = msg => { $('#equipe-erro').textContent = msg; $('#equipe-erro').hidden = false; };
+    $('#equipe-erro').hidden = true; $('#equipe-criado').hidden = true;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { erro('Digite um e-mail válido.'); tr.querySelector('.equipe-ed-email').focus(); return; }
+    if (nome === (p.nome || '') && email === (p.email || '').toLowerCase()) { carregarEquipe(); return; }   // nada mudou
+    const btn = tr.querySelector('.equipe-salvar'); btn.disabled = true; btn.textContent = 'Salvando...';
+    const { error } = await sb.rpc('wg_editar_pessoa', { p_usuario: p.id, p_nome: nome, p_email: email });
+    if (error) {
+      btn.disabled = false; btn.textContent = 'Salvar';
+      erro(/function .*wg_editar_pessoa|could not find|não encontrada a função|Função desconhecida/i.test(error.message)
+        ? 'A edição ainda não está liberada no banco. Rode o arquivo 09_editar_pessoa.sql e tente de novo.' : error.message);
+      return;
+    }
+    const mudouEmail = email !== (p.email || '').toLowerCase();
+    if (p.id === st.user.id && st.profile) st.profile.full_name = nome;
+    if (p.id === st.user.id && mudouEmail) { st.user.email = email; $('#rail-user-email').textContent = email; }
+    toast(mudouEmail ? `Salvo. A partir de agora ${nome || 'a pessoa'} entra com ${email}.` : 'Salvo.');
+    carregarEquipe();
   }
 
   /** Senha provisória fácil de ditar: sem letras parecidas (l, 1, O, 0). */
@@ -4257,6 +4421,7 @@ const WebGeo = (() => {
         <tr><th>Emitido em</th><td>${agora.toLocaleDateString('pt-BR')} ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</td><th>Por</th><td>${esc(st.profile?.full_name || st.user?.email || '')}</td></tr>
       </table>`;
     $('#rel-tabela').innerHTML = op.tabela ? tabelaRelatorio() : '';
+    $('#rel-anot').innerHTML = op.anot ? anotacaoRelatorio() : '';
     const notas = [
       `Valores orientadores: ${esc(st.parametros.find(p => p.referencia)?.referencia || 'CETESB DD 125/2021/E')}.`,
       op.pluma ? `Pluma de ${esc(param?.nome || '')}: interpolação IDW em escala logarítmica (p = ${st.pluma.p}), célula de ${st.pluma.cel} m, limite de ${fmt(limiar, 4)} ${esc(un)}. Valores abaixo do LQ entram como metade do LQ; poços a até 5 m um do outro contam como um ponto, com o maior valor.` : '',
@@ -4303,7 +4468,7 @@ const WebGeo = (() => {
 
   async function gerarRelatorio() {
     const op = { mapa: $('#rel-op-mapa').checked, secao: $('#rel-op-secao').checked, pluma: $('#rel-op-pluma').checked,
-      tabela: $('#rel-op-tabela').checked, notas: $('#rel-op-notas').checked };
+      tabela: $('#rel-op-tabela').checked, notas: $('#rel-op-notas').checked, anot: $('#rel-op-anot').checked };
     const btn = $('#rel-gerar'); btn.disabled = true; btn.textContent = 'Preparando...';
     await prepararRelatorio(op);
     btn.disabled = false; btn.textContent = 'Gerar PDF';

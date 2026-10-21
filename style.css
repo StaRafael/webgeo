@@ -692,3 +692,30 @@
   }
   @media print{ .cerca3d{display:none !important;} }
   .cerca3d-rodape .legenda-nota{display:block;padding:0;line-height:1.5;}
+
+  /* ---------- Anotações do projeto ---------- */
+  .anot-projeto{font-weight:500;color:var(--ink-soft);margin-left:4px;}
+  .anot-projeto:not(:empty)::before{content:"· ";}
+  .anot-texto{display:block;width:100%;min-height:max(320px, calc(100vh - 300px));resize:vertical;box-sizing:border-box;
+    border:1px solid var(--line-strong);border-radius:var(--radius-s);background:var(--surface);color:var(--ink);
+    padding:14px 16px;font:15px/1.6 var(--font-sans);}
+  .anot-texto:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  .anot-texto:disabled{background:var(--surface-alt);color:var(--ink-faint);}
+  .anot-rodape{display:flex;justify-content:space-between;gap:12px;margin-top:8px;font-size:12px;color:var(--ink-faint);}
+  .anot-status.ok{color:var(--accent-ink);}
+  .anot-status.erro{color:var(--danger);}
+  .anot-conta{white-space:nowrap;}
+  .anot-conflito{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;padding:10px 12px;
+    border-radius:var(--radius-s);background:var(--danger-tint);color:var(--danger);font-size:13px;}
+  .anot-conflito[hidden]{display:none;}
+  .anot-conflito-botoes{display:flex;gap:8px;}
+  .rel-anot-texto{white-space:pre-wrap;font-size:11px;line-height:1.5;border:1px solid #C9D3CE;border-radius:4px;padding:8px 10px;}
+  .rel-anot-quando{font-size:9.5px;color:#56655D;margin:4px 0 0;}
+  @media print{ #view-anotacoes{display:none !important;} #rel-anot{break-inside:auto;} }
+
+  /* ---------- Equipe: editar nome e e-mail ---------- */
+  #equipe-tabela td.equipe-acoes{white-space:nowrap;}
+  #equipe-tabela td.equipe-acoes .btn-mini,#equipe-tabela td.equipe-acoes .btn{margin-left:6px;}
+  #equipe-tabela tr.editando td{background:var(--accent-tint);}
+  #equipe-tabela tr.editando input{width:100%;min-width:160px;box-sizing:border-box;font:inherit;padding:5px 8px;border:1px solid var(--line-strong);border-radius:6px;background:var(--surface);color:var(--ink);}
+  #equipe-tabela tr.editando input:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}

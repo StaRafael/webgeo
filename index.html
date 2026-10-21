@@ -79,6 +79,7 @@
 
     <nav class="rail-nav">
       <button type="button" class="rail-item is-active" data-view="visao"><span class="rail-ico">◉</span>Mapa e resultados</button>
+      <button type="button" class="rail-item" data-view="anotacoes"><span class="rail-ico">✎</span>Anotações</button>
       <button type="button" class="rail-item" data-view="dados"><span class="rail-ico">☰</span>Tabela de dados</button>
       <button type="button" class="rail-item" data-view="importar"><span class="rail-ico">⇪</span>Importar planilha</button>
       <button type="button" class="rail-item" data-view="equipe" id="nav-equipe" hidden><span class="rail-ico">⚇</span>Equipe</button>
@@ -337,7 +338,26 @@
         </div>
       </section>
       <div id="rel-tabela" class="so-relatorio rel-bloco"></div>
+      <div id="rel-anot" class="so-relatorio rel-bloco"></div>
       <div id="rel-notas" class="so-relatorio rel-bloco"></div>
+    </div>
+
+    <!-- ============ ANOTAÇÕES DO PROJETO ============ -->
+    <div id="view-anotacoes" class="view" hidden>
+      <section class="section">
+        <div class="section-head"><span class="section-num">✎</span><h2>Anotações do projeto <span class="anot-projeto" id="anot-projeto"></span></h2><span class="hint">a equipe toda da empresa vê e edita · salva sozinho</span></div>
+        <div class="section-body">
+          <div class="anot-conflito" id="anot-conflito" hidden role="alert">
+            <span id="anot-conflito-txt"></span>
+            <div class="anot-conflito-botoes">
+              <button type="button" class="btn btn-ghost btn-sm2" id="anot-usar-deles">Ver a versão salva</button>
+              <button type="button" class="btn btn-primary btn-sm2" id="anot-manter-minha">Salvar a minha por cima</button>
+            </div>
+          </div>
+          <textarea id="anot-texto" class="anot-texto" spellcheck="true" aria-label="Anotações do projeto"></textarea>
+          <div class="anot-rodape"><span class="anot-status" id="anot-status" aria-live="polite"></span><span class="anot-conta" id="anot-conta"></span></div>
+        </div>
+      </section>
     </div>
 
     <!-- ============ TABELA ============ -->
@@ -549,6 +569,7 @@
         <label class="chk"><input type="checkbox" id="rel-op-secao" checked><span class="box"></span>Seção geológica</label>
         <label class="chk"><input type="checkbox" id="rel-op-pluma" checked><span class="box"></span>Pluma e evolução entre campanhas</label>
         <label class="chk"><input type="checkbox" id="rel-op-tabela" checked><span class="box"></span>Tabela de resultados (todos os parâmetros, com o valor orientador)</label>
+        <label class="chk"><input type="checkbox" id="rel-op-anot" checked><span class="box"></span>Anotações do projeto</label>
         <label class="chk"><input type="checkbox" id="rel-op-notas" checked><span class="box"></span>Notas sobre os cálculos</label>
       </div>
       <p class="excluir-nota">Na janela de impressão que vai abrir, escolha <b>Salvar como PDF</b> no campo "Destino". Para não sair endereço e data nas margens, desmarque "Cabeçalhos e rodapés" em "Mais definições".</p>
