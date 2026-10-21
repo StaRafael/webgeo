@@ -6,12 +6,11 @@
 
 // ---------------------------------------------------------------------
 // Conexão com o Supabase: o MESMO projeto do Perfil de Sondagem (mesmo
-// login, mesma empresa). Endereço e chave vêm do config.js de cada ambiente
-// (prod, qa, dev). A chave anon é pública por natureza — quem protege os
-// dados de cada empresa são as regras de segurança (RLS) do banco.
+// login, mesma empresa). A chave publishable é pública por natureza — quem
+// protege os dados de cada empresa são as regras de segurança (RLS) do banco.
 // ---------------------------------------------------------------------
-const SUPABASE_URL = window.APP_CONFIG.supabaseUrl;
-const SUPABASE_ANON_KEY = window.APP_CONFIG.supabaseAnonKey;
+const SUPABASE_URL = 'https://wbocmpekamjfwkwmxtjd.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_rackRbyFgs42jUbWBu0Krw_tn7VTJOw';
 
 
 /* =====================================================================
