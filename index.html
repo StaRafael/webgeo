@@ -2,35 +2,59 @@
 <html lang="pt-BR">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0F2A3D">
 <title>WebGeo · Monitoramento de poços</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="style.css?v=20261109-2200">
+<link rel="stylesheet" href="style.css?v=20261110-novo">
 
 <!-- Tela de entrar — mesma conta do Perfil de Sondagem (mesmo Supabase) -->
 <div id="auth-screen" hidden>
-  <div class="auth-card">
-    <div class="auth-brand">
-      <svg class="rail-mark" width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
-        <rect x="1" y="17" width="24" height="7" rx="1" fill="var(--accent-tint)" stroke="var(--accent)" stroke-width="1.2"/>
-        <rect x="1" y="10" width="24" height="7" rx="1" fill="var(--surface)" stroke="var(--line-strong)" stroke-width="1.2"/>
-        <rect x="10.5" y="1" width="5" height="23" rx="1" fill="var(--accent)"/>
-        <circle cx="13" cy="20.5" r="1.6" fill="var(--surface)"/>
+  <div class="auth-split">
+    <div class="auth-lado" aria-hidden="true">
+      <svg class="auth-curvas" viewBox="0 0 600 800" preserveAspectRatio="xMidYMid slice">
+        <g fill="none" stroke="currentColor" stroke-width="1.2">
+          <path d="M-40 160c120-60 220 40 340-10s200-120 340-40"/><path d="M-40 220c120-60 230 50 350 0s200-110 330-30"/>
+          <path d="M-40 290c130-50 230 60 350 10s210-100 330-20"/><path d="M-40 370c130-40 240 70 360 20s200-90 320-10"/>
+          <path d="M-40 460c140-30 240 80 360 30s200-80 320 0"/><path d="M-40 560c140-20 250 90 370 40s190-70 310 10"/>
+          <path d="M-40 660c150-10 250 100 370 50s190-60 310 20"/>
+          <ellipse cx="420" cy="250" rx="70" ry="40"/><ellipse cx="420" cy="250" rx="38" ry="20"/>
+        </g>
       </svg>
-      <div>
-        <div class="auth-title">WebGeo</div>
-        <div class="auth-sub">Monitoramento de poços</div>
+      <div class="auth-lado-txt">
+        <div class="auth-brand"><svg class="marca" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true">
+        <rect width="34" height="34" rx="9" fill="#0E7C86"/>
+        <path d="M5 13.5c4-2.6 8-2.6 12 0s8 2.6 12 0" stroke="#7FD9DF" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M5 19.5c4-2.6 8-2.6 12 0s8 2.6 12 0" stroke="#BFEDEF" stroke-width="1.6" stroke-linecap="round" opacity=".7"/>
+        <rect x="14.6" y="5" width="4.8" height="22" rx="2.4" fill="#F2A93B"/>
+        <circle cx="17" cy="24.4" r="1.5" fill="#0F2A3D"/>
+      </svg><div><div class="auth-title">WebGeo</div><div class="auth-sub">Monitoramento de poços</div></div></div>
+        <h1>Resultados de laboratório, pluma e geologia num mapa só.</h1>
+        <ul class="auth-pontos"><li>Pluma e evolução entre campanhas</li><li>Seções geológicas e cercas 3D</li><li>Relatórios e pranchas em PDF</li></ul>
       </div>
     </div>
-    <form id="auth-form">
+    <div class="auth-form-lado">
+      <div class="auth-card">
+        <div class="auth-brand auth-brand-mini"><svg class="marca" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true">
+        <rect width="34" height="34" rx="9" fill="#0E7C86"/>
+        <path d="M5 13.5c4-2.6 8-2.6 12 0s8 2.6 12 0" stroke="#7FD9DF" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M5 19.5c4-2.6 8-2.6 12 0s8 2.6 12 0" stroke="#BFEDEF" stroke-width="1.6" stroke-linecap="round" opacity=".7"/>
+        <rect x="14.6" y="5" width="4.8" height="22" rx="2.4" fill="#F2A93B"/>
+        <circle cx="17" cy="24.4" r="1.5" fill="#0F2A3D"/>
+      </svg><div><div class="auth-title">WebGeo</div><div class="auth-sub">Monitoramento de poços</div></div></div>
+        <h2 class="auth-h">Entrar</h2>
+        <p class="auth-lead">Acesse com a sua conta do Perfil de Sondagem.</p>
+        <form id="auth-form">
       <div class="field"><label for="auth-email">E-mail</label><input type="email" id="auth-email" required autocomplete="email"></div>
       <div class="field"><label for="auth-password">Senha</label><input type="password" id="auth-password" required minlength="6" autocomplete="current-password"></div>
       <div id="auth-error" class="auth-error" hidden></div>
       <button type="submit" class="btn btn-primary" id="auth-submit" style="width:100%;justify-content:center">Entrar</button>
     </form>
-    <p class="auth-nota">Use a mesma conta do Perfil de Sondagem. Contas novas são criadas por lá.</p>
+        <p class="auth-nota">Contas novas são criadas pelo Perfil de Sondagem ou pelo administrador da sua empresa.</p>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -45,46 +69,32 @@
 </div>
 
 <div id="app" hidden>
-  <aside class="rail">
+  <aside class="rail" id="rail" aria-label="Menu">
     <div class="rail-brand">
-      <svg class="rail-mark" width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
-        <rect x="1" y="17" width="24" height="7" rx="1" fill="var(--accent-tint)" stroke="var(--accent)" stroke-width="1.2"/>
-        <rect x="1" y="10" width="24" height="7" rx="1" fill="var(--surface)" stroke="var(--line-strong)" stroke-width="1.2"/>
-        <rect x="10.5" y="1" width="5" height="23" rx="1" fill="var(--accent)"/>
-        <circle cx="13" cy="20.5" r="1.6" fill="var(--surface)"/>
+      <svg class="marca" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true">
+        <rect width="34" height="34" rx="9" fill="#0E7C86"/>
+        <path d="M5 13.5c4-2.6 8-2.6 12 0s8 2.6 12 0" stroke="#7FD9DF" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M5 19.5c4-2.6 8-2.6 12 0s8 2.6 12 0" stroke="#BFEDEF" stroke-width="1.6" stroke-linecap="round" opacity=".7"/>
+        <rect x="14.6" y="5" width="4.8" height="22" rx="2.4" fill="#F2A93B"/>
+        <circle cx="17" cy="24.4" r="1.5" fill="#0F2A3D"/>
       </svg>
-      <div>
+      <div class="rail-brand-txt">
         <div class="rail-title">WebGeo</div>
         <div class="rail-sub">Monitoramento de poços</div>
       </div>
-    </div>
-
-    <div class="rail-user">
-      <div class="rail-user-info">
-        <div class="rail-user-org" id="rail-user-org">—</div>
-        <div class="rail-user-email" id="rail-user-email">—</div>
-        <div class="rail-user-papel" id="rail-user-papel"></div>
-      </div>
-      <div class="rail-user-acoes">
-        <button type="button" class="rail-user-logout" id="btn-senha" title="Trocar a minha senha">Trocar senha</button>
-        <button type="button" class="rail-user-logout" id="btn-logout" title="Sair">Sair</button>
-      </div>
-    </div>
-
-    <div class="rail-stats">
-      <div class="rail-stat"><span class="rail-stat-num" id="stat-projetos">0</span><span class="rail-stat-label">projetos</span></div>
-      <div class="rail-stat"><span class="rail-stat-num" id="stat-pocos">0</span><span class="rail-stat-label">poços</span></div>
-      <div class="rail-stat"><span class="rail-stat-num" id="stat-campanhas">0</span><span class="rail-stat-label">campanhas</span></div>
+      <button type="button" class="rail-fechar" id="btn-rail-fechar" aria-label="Fechar menu" title="Fechar menu">✕</button>
     </div>
 
     <nav class="rail-nav">
-      <button type="button" class="rail-item is-active" data-view="visao"><span class="rail-ico">◉</span>Mapa e resultados</button>
-      <button type="button" class="rail-item" data-view="anotacoes"><span class="rail-ico">✎</span>Anotações</button>
-      <button type="button" class="rail-item" data-view="dados"><span class="rail-ico">☰</span>Tabela de dados</button>
-      <button type="button" class="rail-item" data-view="importar"><span class="rail-ico">⇪</span>Importar planilha</button>
-      <button type="button" class="rail-item" data-view="equipe" id="nav-equipe" hidden><span class="rail-ico">⚇</span>Equipe</button>
+      <button type="button" class="rail-item is-active" data-view="visao"><svg class="rail-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 7 9 4Z"/><path d="M9 4v13M15 7v12.5"/></svg>Mapa e resultados</button>
+      <button type="button" class="rail-item" data-view="anotacoes"><svg class="rail-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>Anotações</button>
+      <button type="button" class="rail-item" data-view="dados"><svg class="rail-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"/></svg>Tabela de dados</button>
+      <button type="button" class="rail-item" data-view="importar"><svg class="rail-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>Importar planilha</button>
+      <button type="button" class="rail-item" data-view="equipe" id="nav-equipe" hidden><svg class="rail-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8.5" r="3.2"/><path d="M3 19.5c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><circle cx="16.8" cy="9.5" r="2.4"/><path d="M16.5 14.6c2.3.1 4 1.6 4.5 4.4"/></svg>Equipe</button>
     </nav>
 
+    <div class="rail-rotulo">Projeto em análise</div>
+    <div class="rail-contexto">
     <div class="rail-filtros" id="filtros">
       <div class="rail-projeto">
         <div class="rail-projeto-cab">
@@ -109,8 +119,12 @@
         <div id="f-redes" class="group-choices"></div>
       </div>
     </div>
+    </div>
 
-    <div class="rail-filtros rail-pluma">
+    <div class="rail-rotulo">Camadas e ferramentas</div>
+    <details class="rail-grupo" id="rg-pluma" open>
+      <summary><span class="rg-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5c3.5 4 6 7.2 6 10.3a6 6 0 0 1-12 0c0-3.1 2.5-6.3 6-10.3Z"/></svg></span><span class="rg-tit">Pluma e rótulos</span><span class="rg-seta" aria-hidden="true"></span></summary>
+      <div class="rail-filtros rail-pluma">
       <div class="rail-projeto">
         <label class="chk"><input type="checkbox" id="f-pluma" checked><span class="box"></span><b>Mostrar pluma</b></label>
         <label class="chk"><input type="checkbox" id="f-calor"><span class="box"></span>Mapa de calor (todos os valores)</label>
@@ -140,8 +154,10 @@
         </div>
       </div>
     </div>
-
-    <div class="rail-filtros rail-pot">
+    </details>
+    <details class="rail-grupo" id="rg-pot">
+      <summary><span class="rg-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8c3-2 6-2 9 0s6 2 9 0M3 13c3-2 6-2 9 0s6 2 9 0M3 18c3-2 6-2 9 0s6 2 9 0"/></svg></span><span class="rg-tit">Potenciométrico</span><span class="rg-seta" aria-hidden="true"></span></summary>
+      <div class="rail-filtros rail-pot">
       <div class="rail-projeto">
         <label class="chk"><input type="checkbox" id="f-pot"><span class="box"></span><b>Mapa potenciométrico</b></label>
       </div>
@@ -170,10 +186,11 @@
         <p class="pot-resumo" id="pot-resumo"></p>
       </div>
     </div>
-
-    <div class="rail-filtros rail-secao">
-      <div class="rail-projeto-cab"><span class="rail-projeto-label">Seção geológica</span></div>
-      <button type="button" class="btn btn-ghost btn-sm" id="btn-secao-tracar">Traçar seção A–A'</button>
+    </details>
+    <details class="rail-grupo" id="rg-secao">
+      <summary><span class="rg-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 11c4-1.5 7 1.5 10 0s5-1 8 0M3 16c4 1 7-1 10 0s5 1 8 0M3 20h18"/></svg></span><span class="rg-tit">Seção geológica e 3D</span><span class="rg-seta" aria-hidden="true"></span></summary>
+      <div class="rail-filtros rail-secao">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-secao-tracar">Traçar seção A–A'</button>
       <button type="button" class="btn btn-ghost btn-sm" id="btn-cerca3d">Diagrama de cercas 3D</button>
       <div id="secao-painel" class="pot-painel" hidden>
         <div class="rail-duplo">
@@ -196,10 +213,11 @@
         <div class="planta-acoes"><button type="button" class="btn-mini btn-mini-perigo" id="btn-secao-apagar">Apagar seção</button></div>
       </div>
     </div>
-
-    <div class="rail-filtros rail-planta">
-      <div class="rail-projeto-cab"><span class="rail-projeto-label">Planta (DXF)</span></div>
-      <button type="button" class="btn btn-ghost btn-sm" id="btn-planta-inserir">Inserir planta (DXF)</button>
+    </details>
+    <details class="rail-grupo" id="rg-planta">
+      <summary><span class="rg-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M4 12h7v7M11 5v4h9"/></svg></span><span class="rg-tit">Planta, ortofoto e DXF</span><span class="rg-seta" aria-hidden="true"></span></summary>
+      <div class="rail-filtros rail-planta">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-planta-inserir">Inserir planta (DXF)</button>
       <button type="button" class="btn btn-ghost btn-sm" id="btn-orto" title="Imagem do drone georreferenciada: GeoTIFF, ou JPG/PNG junto com o .jgw/.pgw">Inserir ortofoto (drone)</button>
       <input type="file" id="arquivo-orto" accept=".tif,.tiff,.jpg,.jpeg,.png,.jgw,.jpgw,.pgw,.pngw,.tfw,.tifw,.wld" multiple hidden>
       <span id="orto-estado" class="lim-estado" hidden></span>
@@ -226,46 +244,78 @@
         </div>
       </div>
     </div>
-
-    <div class="rail-filtros rail-f360">
-      <div class="rail-projeto-cab"><span class="rail-projeto-label">Fotos 360° <span id="f360-conta"></span></span></div>
-      <button type="button" class="btn btn-ghost btn-sm" id="btn-f360-inserir">Inserir foto 360°</button>
+    </details>
+    <details class="rail-grupo" id="rg-f360">
+      <summary><span class="rg-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="8.5" ry="3.4"/><circle cx="12" cy="12" r="1.6"/></svg></span><span class="rg-tit">Fotos 360° <span id="f360-conta" class="rg-conta"></span></span><span class="rg-seta" aria-hidden="true"></span></summary>
+      <div class="rail-filtros rail-f360">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-f360-inserir">Inserir foto 360°</button>
       <input type="file" id="arquivo-f360" accept="image/jpeg,image/png,image/webp" hidden>
       <div id="f360-painel" class="pot-painel" hidden>
         <label class="chk"><input type="checkbox" id="f-f360" checked><span class="box"></span><b>Mostrar no mapa</b></label>
         <ul id="f360-lista" class="f360-lista"></ul>
       </div>
     </div>
+    </details>
 
-    <div class="rail-foot">Os projetos são os mesmos do Perfil de Sondagem. As fichas com coordenada aparecem no mapa sozinhas; os resultados de laboratório entram pela planilha modelo (uma por campanha). Valores orientadores: CETESB DD 125/2021/E.</div>
-  </aside>
-
-  <main class="sheet">
-    <div class="topbar">
-      <div class="topbar-id">
-        <span class="tag" id="tb-campanha">—</span>
-        <span class="obra" id="tb-sitio">Carregando...</span>
-        <span class="tag tag-param" id="tb-parametro" hidden></span>
+    <div class="rail-base">
+      <div class="rail-stats">
+      <div class="rail-stat"><span class="rail-stat-num" id="stat-projetos">0</span><span class="rail-stat-label">projetos</span></div>
+      <div class="rail-stat"><span class="rail-stat-num" id="stat-pocos">0</span><span class="rail-stat-label">poços</span></div>
+      <div class="rail-stat"><span class="rail-stat-num" id="stat-campanhas">0</span><span class="rail-stat-label">campanhas</span></div>
+    </div>
+      <div class="rail-user">
+      <div class="rail-user-info">
+        <div class="rail-user-org" id="rail-user-org">—</div>
+        <div class="rail-user-email" id="rail-user-email">—</div>
+        <div class="rail-user-papel" id="rail-user-papel"></div>
       </div>
-      <div class="topbar-actions">
-        <button class="btn btn-ghost btn-campo" id="btn-campo" type="button" title="No celular: mostra onde você está, leva até o poço e abre a ficha de campo (N.A., situação, fotos)">Modo campo (GPS)</button>
-        <button class="btn btn-ghost" id="btn-prancha" type="button" title="Mapa ou seção numa folha A3, com legenda, carimbo e logo">Prancha A3 (PDF)</button>
-        <button class="btn btn-ghost" id="btn-relatorio" type="button">Relatório (PDF)</button>
-        <button class="btn btn-ghost" id="btn-csv" type="button">Exportar CSV</button>
-        <button class="btn btn-primary" type="button" data-view="importar">Importar planilha</button>
+      <div class="rail-user-acoes">
+        <button type="button" class="rail-user-logout" id="btn-senha" title="Trocar a minha senha">Trocar senha</button>
+        <button type="button" class="rail-user-logout" id="btn-logout" title="Sair">Sair</button>
       </div>
     </div>
+      <div class="rail-foot">Os projetos são os mesmos do Perfil de Sondagem. As fichas com coordenada aparecem no mapa sozinhas; os resultados de laboratório entram pela planilha modelo (uma por campanha). Valores orientadores: CETESB DD 125/2021/E.</div>
+    </div>
+  </aside>
+  <div class="rail-veu" id="rail-veu" hidden></div>
+
+  <main class="sheet">
+    <header class="topbar">
+      <button type="button" class="topbar-menu" id="btn-rail" aria-label="Mostrar ou esconder o menu" title="Mostrar ou esconder o menu" aria-controls="rail">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+      </button>
+      <div class="topbar-id">
+        <span class="topbar-eyebrow">Projeto</span>
+        <div class="topbar-linha">
+          <span class="obra" id="tb-sitio">Carregando...</span>
+          <span class="tag" id="tb-campanha">—</span>
+          <span class="tag tag-param" id="tb-parametro" hidden></span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost btn-campo" id="btn-campo" type="button" title="No celular: mostra onde você está, leva até o poço e abre a ficha de campo (N.A., situação, fotos)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z"/><circle cx="12" cy="10" r="2.4"/></svg><span>Modo campo</span></button>
+        <details class="menu-saida" id="menu-saida">
+          <summary class="btn btn-ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16"/></svg><span>Exportar</span></summary>
+          <div class="menu-lista">
+            <button class="menu-item" id="btn-prancha" type="button" title="Mapa ou seção numa folha A3, com legenda, carimbo e logo">Prancha A3 (PDF)<small>Mapa ou seção em folha A3, com carimbo</small></button>
+            <button class="menu-item" id="btn-relatorio" type="button">Relatório (PDF)<small>Resumo, mapa, pluma e tabela</small></button>
+            <button class="menu-item" id="btn-csv" type="button">Exportar CSV<small>Resultados da campanha em planilha</small></button>
+          </div>
+        </details>
+        <button class="btn btn-primary" type="button" data-view="importar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/></svg><span>Importar planilha</span></button>
+      </div>
+    </header>
 
     <div class="aviso-geral" id="aviso-geral" hidden></div>
 
     <!-- ============ MAPA E RESULTADOS ============ -->
     <div id="view-visao" class="view">
       <div id="rel-cab" class="so-relatorio rel-cab"></div>
-      <div class="kpis">
-        <div class="kpi"><span class="kpi-label">Poços analisados</span><span class="kpi-num" id="kpi-analisados">—</span><span class="kpi-sub" id="kpi-analisados-sub"></span></div>
-        <div class="kpi kpi-danger"><span class="kpi-label">Acima do VI</span><span class="kpi-num" id="kpi-acima">—</span><span class="kpi-sub" id="kpi-acima-sub"></span></div>
-        <div class="kpi"><span class="kpi-label">Maior concentração</span><span class="kpi-num"><span id="kpi-max">—</span> <small id="kpi-max-un"></small></span><span class="kpi-sub" id="kpi-max-sub"></span></div>
-        <div class="kpi"><span class="kpi-label">Abaixo do LQ</span><span class="kpi-num" id="kpi-lq">—</span><span class="kpi-sub" id="kpi-lq-sub"></span></div>
+      <div class="kpis kpis-topo">
+        <div class="kpi"><span class="kpi-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg></span><div class="kpi-txt"><span class="kpi-label">Poços analisados</span><span class="kpi-num" id="kpi-analisados">—</span><span class="kpi-sub" id="kpi-analisados-sub"></span></div></div>
+        <div class="kpi kpi-danger"><span class="kpi-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 21 19.5H3L12 4Z"/><path d="M12 10v4.5M12 17.2v.1"/></svg></span><div class="kpi-txt"><span class="kpi-label">Acima do VI</span><span class="kpi-num" id="kpi-acima">—</span><span class="kpi-sub" id="kpi-acima-sub"></span></div></div>
+        <div class="kpi"><span class="kpi-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16"/><path d="M6.5 15.5 10 11l3 2.5 4.5-6.5"/><path d="M14.5 7h3v3"/></svg></span><div class="kpi-txt"><span class="kpi-label">Maior concentração</span><span class="kpi-num"><span id="kpi-max">—</span> <small id="kpi-max-un"></small></span><span class="kpi-sub" id="kpi-max-sub"></span></div></div>
+        <div class="kpi"><span class="kpi-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v13M7.5 12.5 12 17l4.5-4.5"/><path d="M5 20h14"/></svg></span><div class="kpi-txt"><span class="kpi-label">Abaixo do LQ</span><span class="kpi-num" id="kpi-lq">—</span><span class="kpi-sub" id="kpi-lq-sub"></span></div></div>
       </div>
 
       <section class="section" id="sec-mapa">
@@ -814,5 +864,32 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="config.js"></script>
-<script src="script.js?v=20261109-2200"></script>
+<script>
+/* Menu lateral: recolher no computador, gaveta no celular; menu Exportar. */
+(function(){
+  var b=document.body, celular=matchMedia('(max-width: 960px)');
+  var veu=document.getElementById('rail-veu');
+  function avisarMapa(){ setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 260); }
+  function setAberto(v){ b.classList.toggle('rail-aberta', v); veu.hidden=!v; }
+  try{ if(localStorage.getItem('wg-rail-fechada')==='1') b.classList.add('rail-fechada'); }catch(e){}
+  document.getElementById('btn-rail').addEventListener('click', function(){
+    if(celular.matches){ setAberto(!b.classList.contains('rail-aberta')); return; }
+    var f=b.classList.toggle('rail-fechada');
+    try{ localStorage.setItem('wg-rail-fechada', f?'1':'0'); }catch(e){}
+    avisarMapa();
+  });
+  document.getElementById('btn-rail-fechar').addEventListener('click', function(){ setAberto(false); });
+  veu.addEventListener('click', function(){ setAberto(false); });
+  document.querySelectorAll('.rail-nav [data-view]').forEach(function(x){ x.addEventListener('click', function(){ if(celular.matches) setAberto(false); }); });
+  var menu=document.getElementById('menu-saida');
+  menu.querySelectorAll('.menu-item').forEach(function(x){ x.addEventListener('click', function(){ menu.open=false; }); });
+  document.addEventListener('click', function(e){ if(menu.open && !menu.contains(e.target)) menu.open=false; });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ menu.open=false; setAberto(false); } });
+  /* painel que o programa abre dentro de um grupo fechado: abre o grupo */
+  new MutationObserver(function(ms){ ms.forEach(function(m){
+    var el=m.target; if(el.hidden) return; var g=el.closest && el.closest('details.rail-grupo'); if(g && !g.open) g.open=true;
+  }); }).observe(document.getElementById('rail'), {subtree:true, attributes:true, attributeFilter:['hidden']});
+})();
+</script>
+<script src="script.js?v=20261110-novo"></script>
 </html>
