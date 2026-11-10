@@ -298,7 +298,8 @@
   .leg-ticks span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap;}
   .leg-ticks span:first-child{transform:none;}
   .leg-rampa{margin-right:10px;}
-  .leg-limiar{display:inline-block;width:22px;height:0;border-top:2px dashed var(--ink);}
+  .leg-limiar{display:inline-block;width:22px;height:0;border-top:2px solid var(--ink);}
+  .leg-limiar.leg-limiar-inf{border-top-style:dashed;}
   .leg-centro{display:inline-block;width:12px;height:12px;border-radius:50%;background:#fff;border:3px solid #172621;}
   .leg-centro-ini{background:transparent;border:2px dashed #172621;}
 
@@ -724,3 +725,184 @@
   .equipe-empresa-msg{font-size:12.5px;color:var(--ink-soft);align-self:center;}
   .equipe-empresa-msg.ok{color:var(--accent-ink);}
   .equipe-empresa-msg.erro{color:var(--danger);}
+
+  /* ---------- Mapa: satélite, malha UTM e rosa dos ventos ---------- */
+  #mapa.mapa-sem-satelite{background:#EEF1EF;}
+  .mapa-botoes{display:flex;flex-direction:column;background:#fff;}
+  .mapa-botoes button{border:none;border-bottom:1px solid #ccc;background:#fff;color:#56655D;font:600 11.5px/1 var(--font-sans);padding:7px 9px;text-align:left;cursor:pointer;white-space:nowrap;}
+  .mapa-botoes button:last-child{border-bottom:none;}
+  .mapa-botoes button::before{content:"";display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;border:1.5px solid #8B978F;vertical-align:-1px;}
+  .mapa-botoes button[aria-pressed="true"]{color:#172621;}
+  .mapa-botoes button[aria-pressed="true"]::before{background:#2F6F5E;border-color:#2F6F5E;}
+  .mapa-botoes button:hover{background:#F2F5F3;}
+  .mapa-botoes button:focus-visible{outline:2px solid #2F6F5E;outline-offset:-2px;}
+  .rosa-ventos{pointer-events:none;filter:drop-shadow(0 1px 3px rgba(0,0,0,.35));}
+  .rosa-ventos svg{display:block;}
+  .malha-rotulos{position:absolute;inset:0;z-index:450;pointer-events:none;overflow:hidden;}
+  @media print{ .mapa-botoes{display:none !important;} }
+
+  /* ---------- Seções A–A', B–B'... ---------- */
+  .pino-secao{width:auto;min-width:22px;padding:0 3px;box-sizing:border-box;}
+  .pino-secao.outra{background:#ffffff;cursor:pointer;}
+  @media print{ .secao-abas{display:none !important;} #rel-secoes-extra .section{break-before:page;} }
+  @media print{ .secao-desenho svg{width:100% !important;height:auto !important;} }
+
+/* ---------- Seção: pluma vertical ---------- */
+.leg-pluma-v { display:inline-block; width:34px; height:10px; border-radius:2px; vertical-align:middle; margin-right:6px; opacity:.85; border:1px solid rgba(23,38,33,.25); }
+
+
+/* ---------- Importação: botão converter UTM ---------- */
+.imp-botoes{display:flex;flex-direction:column;gap:8px;align-items:stretch;flex-shrink:0;}
+.imp-botoes label.btn{cursor:pointer;text-align:center;}
+
+/* ---------- Mapa: editar a posição de um poço ---------- */
+.pop-acoes{margin-top:8px;display:flex;justify-content:flex-end;}
+.poco-campos{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;}
+.poco-campos label{display:flex;flex-direction:column;gap:2px;font-size:11px;font-weight:600;color:var(--ink-soft);}
+.poco-campos input{width:128px;padding:4px 6px;font:12.5px var(--font-mono);border:1px solid var(--line-strong);border-radius:4px;background:var(--surface);color:var(--ink);}
+.poco-campos input:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent);}
+.poco-info{font-size:12px;color:var(--ink-soft);min-width:110px;padding-bottom:5px;}
+.pino-poco-edit{width:18px;height:18px;border-radius:50%;background:#FFD60A;border:2px solid #172621;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab;position:relative;}
+.pino-poco-edit span{position:absolute;left:22px;top:-2px;white-space:nowrap;font:700 11px var(--font-mono);color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;pointer-events:none;}
+
+/* ---------- Mapa: situação do poço ---------- */
+.poco-campos select{padding:4px 6px;font-size:12.5px;border:1px solid var(--line-strong);border-radius:4px;background:var(--surface);color:var(--ink);min-width:118px;}
+.rotulo-sit{font-weight:500;font-style:italic;opacity:.85;}
+
+/* ---------- Rail: baixar DXF do mapa ---------- */
+.rail-planta > .btn + .btn{margin-top:6px;}
+
+/* ---------- Prancha A3 (PDF) ---------- */
+.modal-prancha{max-width:640px;}
+.pr-grade{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;}
+.pr-grade .field{margin:8px 0;}
+.pr-grade .pr-largo{grid-column:1 / -1;}
+.pr-grade input,.pr-grade select{padding:7px 9px;border:1px solid var(--line-strong);border-radius:var(--radius-s);background:var(--surface);color:var(--ink);font:inherit;font-size:13px;}
+.pr-logo-linha{display:flex;align-items:center;gap:10px;}
+.pr-logo-ver{width:150px;height:48px;border:1px dashed var(--line-strong);border-radius:var(--radius-s);display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;}
+.pr-logo-ver img{max-width:100%;max-height:100%;}
+.pr-logo-ver span{font-size:12px;color:var(--ink-soft);}
+.pr-logo label.btn{cursor:pointer;}
+.pr-empresa{width:220px;margin-top:4px;}
+.pr-status{min-height:1.4em;font-size:12.5px;color:var(--ink-soft);}
+@media (max-width:640px){ .pr-grade{grid-template-columns:1fr;} }
+
+.pr-opc{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;}
+.pr-escala-linha{display:flex;gap:6px;}
+.pr-escala-linha select{flex:1;min-width:0;}
+.pr-escala-linha input{width:96px;}
+@media (max-width:640px){ .pr-opc{grid-template-columns:1fr;} }
+
+/* ---------- Prancha: rótulos ajustáveis ---------- */
+.pr-rot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:6px 0 4px;}
+.rot-ajuste-icone{background:none;border:none;}
+.rot-ajuste{position:absolute;white-space:nowrap;cursor:move;font:700 11px var(--font-mono);padding:1px 4px;border-radius:3px;
+  background:rgba(23,38,33,.82);color:#fff;border:1px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);user-select:none;}
+.rot-ajuste.rot-nome{transform:translate(0,-50%);}
+.rot-ajuste.rot-valor{transform:translate(-50%,-50%);background:rgba(255,214,10,.92);color:#172621;border-color:#172621;font-weight:600;}
+.rot-ajuste.rot-acima{color:#9b1c10;font-weight:800;}
+
+/* ---------- Mapa: valores embaixo dos poços ---------- */
+.rail-rotulos{display:flex;flex-direction:column;gap:6px;align-items:stretch;}
+.rotulo-valor-mapa{position:absolute;left:0;top:8px;transform:translateX(-50%);white-space:nowrap;pointer-events:none;
+  font:600 10.5px/13px var(--font-mono);color:#fff;text-shadow:0 0 3px #000,0 0 2px #000,0 0 1px #000;}
+.rotulo-valor-mapa.solto{top:0;transform:translate(-50%,-50%);}
+.rotulo-valor-mapa.rotulo-acima{color:#FFB4A8;font-weight:800;}
+.rotulo-pm.rotulo-solto{position:absolute;left:0;top:0;transform:translateY(-50%);}
+
+/* ---------- Mapa: editar a linha da pluma ---------- */
+.lim-vertice{width:14px;height:14px;border-radius:3px;background:#fff;border:2px solid #172621;box-shadow:0 1px 4px rgba(0,0,0,.5);cursor:move;}
+.lim-meio{width:12px;height:12px;border-radius:50%;background:rgba(255,214,10,.85);border:1.5px solid #172621;cursor:copy;}
+.mapa-editando-limite .leaflet-interactive{cursor:pointer;}
+.lim-estado{font-size:11.5px;color:var(--ink-soft);line-height:1.35;}
+.btn-link{border:none;background:none;padding:0;color:var(--accent-ink, #1f6b52);text-decoration:underline;font:inherit;cursor:pointer;}
+
+/* ---------- Mapa: carga hidráulica em etiqueta própria ---------- */
+.rotulo-carga-mapa{position:absolute;left:0;top:-9px;transform:translate(-50%,-100%);white-space:nowrap;pointer-events:none;
+  font:600 10.5px/13px var(--font-mono);padding:0 3px;border-radius:2px;background:#1565A8;color:#fff;box-shadow:0 0 0 1px #fff;}
+.rotulo-carga-mapa.solto{top:0;transform:translate(-50%,-50%);}
+.rot-ajuste.rot-carga{background:#1565A8;color:#fff;border-color:#fff;}
+
+/* ---------- Pluma: desenhar pluma nova ---------- */
+.lim-botoes{flex-wrap:wrap;}
+.lim-traco{padding:4px 6px;font-size:12.5px;border:1px solid var(--line-strong);border-radius:var(--radius-s);background:var(--surface);color:var(--ink);}
+.mapa-desenhando-limite,.mapa-desenhando-limite .leaflet-interactive{cursor:crosshair !important;}
+.lim-vertice.novo{width:12px;height:12px;background:#B3402A;border-color:#fff;border-radius:50%;}
+
+/* ---------- Modo campo (GPS) ---------- */
+.img-orto{image-rendering:auto;}
+.campo-painel{position:fixed;left:0;right:0;bottom:0;z-index:2500;background:var(--surface);border-top:2px solid var(--accent);
+  box-shadow:0 -6px 24px rgba(0,0,0,.25);max-height:46vh;display:flex;flex-direction:column;font-size:14px;}
+.campo-painel.recolhido .campo-lista,.campo-painel.recolhido .campo-conta{display:none;}
+.campo-topo{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);}
+.campo-botoes{display:flex;gap:6px;}
+.campo-gps{font-weight:700;color:var(--accent-ink, #1f6b52);}
+.campo-gps.ruim{color:#B3402A;}
+.campo-alvo{display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--accent-tint);border-bottom:1px solid var(--line);}
+.campo-alvo.chegou{background:#DFF3E6;}
+.campo-seta-caixa{width:52px;height:52px;border-radius:50%;background:#172621;display:flex;align-items:center;justify-content:center;flex:none;}
+.campo-seta{color:#FFD60A;font-size:30px;line-height:1;transform-origin:50% 50%;transition:transform .25s;display:inline-block;rotate:-90deg;}
+.campo-alvo-txt{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.campo-alvo-txt b{font-size:17px;font-family:var(--font-mono);}
+.campo-alvo-txt small{color:var(--ink-soft);font-size:11.5px;}
+.campo-alvo-acoes{display:flex;flex-direction:column;align-items:center;gap:4px;}
+.campo-conta{padding:6px 12px;font-size:12px;color:var(--ink-soft);}
+.campo-lista{list-style:none;margin:0;padding:0 8px 10px;overflow-y:auto;}
+.campo-lista li{display:flex;gap:6px;border-bottom:1px solid var(--line);}
+.campo-lista li > button[data-ir]{flex:1;display:grid;grid-template-columns:1fr auto;gap:0 10px;text-align:left;padding:8px 4px;border:none;background:none;color:var(--ink);font:inherit;min-height:44px;}
+.campo-lista li > button[data-ir] b{font-family:var(--font-mono);}
+.campo-lista li > button[data-ir] em{grid-column:1 / -1;font-style:normal;font-size:12px;color:var(--ink-soft);}
+.campo-lista li.feito em{color:#1f6b52;font-weight:700;}
+.campo-lista li.alvo{background:var(--accent-tint);}
+.campo-ficha-btn{align-self:center;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--radius-s);padding:6px 10px;font-size:13px;min-height:36px;}
+body.modo-campo .rail,body.modo-campo .topbar,body.modo-campo .kpis,body.modo-campo #view-visao > :not(#sec-mapa),body.modo-campo .sheet > .note,body.modo-campo #sec-mapa .section-head,body.modo-campo .legenda,body.modo-campo .ajuste-barra{display:none !important;}
+body.modo-campo .modal-fundo:not([hidden]){display:flex !important;}
+body.modo-campo .sheet{padding:0 !important;margin:0 !important;max-width:none !important;}
+body.modo-campo #sec-mapa{margin:0;border:none;border-radius:0;}
+body.modo-campo #mapa{height:100vh !important;height:100dvh !important;}
+body.modo-campo .leaflet-bottom{bottom:46vh;}
+.modal-campo{max-width:520px;}
+.cf-grade{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;}
+.cf-grade .field{margin:8px 0;}
+.cf-grade .cf-largo{grid-column:1 / -1;}
+.cf-grade input,.cf-grade select,.cf-grade textarea{padding:8px 9px;border:1px solid var(--line-strong);border-radius:var(--radius-s);background:var(--surface);color:var(--ink);font:inherit;font-size:14px;}
+.cf-fl{justify-content:flex-end;}
+.cf-galeria{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+.cf-galeria img{width:72px;height:72px;object-fit:cover;border-radius:4px;border:1px solid var(--line);}
+@media (max-width:520px){ .cf-grade{grid-template-columns:1fr;} .topbar-actions .btn-campo{order:-1;} }
+
+/* ---------- Desenho e medida no mapa ---------- */
+.des-barra{flex-direction:column;align-items:stretch;gap:8px;}
+.des-linha{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.des-ferr{display:flex;border:1px solid var(--line-strong);border-radius:var(--radius-s);overflow:hidden;}
+.des-btn{border:none;background:var(--surface);color:var(--ink);padding:6px 11px;font:inherit;font-size:12.5px;min-height:32px;cursor:pointer;}
+.des-btn + .des-btn{border-left:1px solid var(--line-strong);}
+.des-btn[aria-pressed="true"]{background:var(--accent);color:#fff;font-weight:700;}
+.des-cores{display:flex;gap:5px;align-items:center;}
+.des-cor{width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:var(--c);box-shadow:0 0 0 1px var(--line-strong);cursor:pointer;padding:0;position:relative;}
+.des-cor[aria-pressed="true"]{box-shadow:0 0 0 2px var(--accent);}
+.des-cor-livre{background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red);overflow:hidden;}
+.des-cor-livre input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+.des-dica{color:var(--ink-soft);font-size:12.5px;flex:1;min-width:200px;}
+.des-medida{font-family:var(--font-mono);font-size:13px;color:var(--ink);}
+.mapa-desenhando{cursor:crosshair !important;}
+.mapa-desenhando .leaflet-interactive{cursor:crosshair !important;}
+.mapa-borracha .des-item{cursor:not-allowed !important;}
+.mapa-livre{touch-action:none;}
+.rotulo-medida{background:none;border:none;}
+.rotulo-medida span{display:inline-block;transform:translate(-50%,-50%);white-space:nowrap;font:700 11px/1.2 var(--font-mono);color:#172621;background:rgba(255,255,255,.92);border:1px solid rgba(23,38,33,.35);border-radius:3px;padding:1px 4px;}
+.rotulo-medida.total span{background:#172621;color:#fff;}
+.rotulo-medida.area span{background:#FFD60A;color:#172621;}
+
+/* ---------- Visualização da prancha A3 ---------- */
+.previa-fundo{padding:12px;}
+.previa-caixa{background:var(--surface);border-radius:var(--radius-m, 10px);width:min(1500px,100%);height:calc(100dvh - 24px);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);}
+.previa-cab{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--line);}
+.previa-cab small{color:var(--ink-soft);font-family:var(--font-mono);margin-left:6px;}
+.previa-botoes{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.previa-botoes a.btn{text-decoration:none;}
+.previa-aviso{margin:0;padding:6px 14px;font-size:12.5px;color:var(--warn);background:var(--warn-tint);}
+#previa-quadro{flex:1;width:100%;overflow:auto;background:#525659;display:flex;align-items:flex-start;justify-content:center;padding:16px;}
+#previa-quadro canvas{background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.45);flex:none;margin:auto;}
+.previa-carregando{color:#fff;margin:auto;}
+.previa-zoom{display:inline-flex;gap:2px;}

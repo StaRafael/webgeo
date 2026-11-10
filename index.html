@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=20261109-2200">
 
 <!-- Tela de entrar — mesma conta do Perfil de Sondagem (mesmo Supabase) -->
 <div id="auth-screen" hidden>
@@ -113,6 +113,17 @@
     <div class="rail-filtros rail-pluma">
       <div class="rail-projeto">
         <label class="chk"><input type="checkbox" id="f-pluma" checked><span class="box"></span><b>Mostrar pluma</b></label>
+        <label class="chk"><input type="checkbox" id="f-calor"><span class="box"></span>Mapa de calor (todos os valores)</label>
+      </div>
+      <div class="rail-projeto rail-rotulos">
+        <label class="chk"><input type="checkbox" id="f-valores" checked><span class="box"></span>Mostrar valores nos poços</label>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-rotulos" title="Arraste no mapa o nome e o valor de cada poço">Ajustar rótulos (nomes e valores)</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-limite" title="Arraste os pontos da linha do limite e escolha trecho contínuo ou tracejado">Editar linha da pluma</button>
+        <span id="lim-estado" class="lim-estado" hidden>Linha ajustada à mão nesta campanha · <button type="button" class="btn-link" id="lim-estado-voltar">voltar à calculada</button></span>
+      </div>
+      <div class="rail-projeto rail-desenho">
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-desenho" title="Desenhe no mapa com reta ou à mão livre, escolha a cor e meça distância e área">Desenhar e medir</button>
+        <label class="chk" id="f-desenhos-linha" hidden><input type="checkbox" id="f-desenhos" checked><span class="box"></span>Mostrar desenhos (<span id="des-conta">0</span>)</label>
       </div>
       <div class="rail-projeto">
         <label class="rail-projeto-label" for="f-limiar">Limite da pluma (<span id="f-limiar-un">µg/L</span>)</label>
@@ -181,6 +192,7 @@
           </div>
         </div>
         <label class="chk"><input type="checkbox" id="f-secao-ligar" checked><span class="box"></span>Preencher entre as sondagens</label>
+        <label class="chk"><input type="checkbox" id="f-secao-pluma" checked><span class="box"></span>Pluma vertical na seção</label>
         <div class="planta-acoes"><button type="button" class="btn-mini btn-mini-perigo" id="btn-secao-apagar">Apagar seção</button></div>
       </div>
     </div>
@@ -188,6 +200,10 @@
     <div class="rail-filtros rail-planta">
       <div class="rail-projeto-cab"><span class="rail-projeto-label">Planta (DXF)</span></div>
       <button type="button" class="btn btn-ghost btn-sm" id="btn-planta-inserir">Inserir planta (DXF)</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-orto" title="Imagem do drone georreferenciada: GeoTIFF, ou JPG/PNG junto com o .jgw/.pgw">Inserir ortofoto (drone)</button>
+      <input type="file" id="arquivo-orto" accept=".tif,.tiff,.jpg,.jpeg,.png,.jgw,.jpgw,.pgw,.pngw,.tfw,.tifw,.wld" multiple hidden>
+      <span id="orto-estado" class="lim-estado" hidden></span>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-mapa-dxf" title="Planta, poços, pluma e potenciométrico (se ligados) em DXF (UTM), para o AutoCAD">Baixar DXF do mapa</button>
       <input type="file" id="arquivo-dxf" accept=".dxf" hidden>
       <div id="planta-painel" class="planta-painel" hidden>
         <label class="chk"><input type="checkbox" id="f-planta" checked><span class="box"></span><b id="planta-nome">planta.dxf</b></label>
@@ -232,6 +248,8 @@
         <span class="tag tag-param" id="tb-parametro" hidden></span>
       </div>
       <div class="topbar-actions">
+        <button class="btn btn-ghost btn-campo" id="btn-campo" type="button" title="No celular: mostra onde você está, leva até o poço e abre a ficha de campo (N.A., situação, fotos)">Modo campo (GPS)</button>
+        <button class="btn btn-ghost" id="btn-prancha" type="button" title="Mapa ou seção numa folha A3, com legenda, carimbo e logo">Prancha A3 (PDF)</button>
         <button class="btn btn-ghost" id="btn-relatorio" type="button">Relatório (PDF)</button>
         <button class="btn btn-ghost" id="btn-csv" type="button">Exportar CSV</button>
         <button class="btn btn-primary" type="button" data-view="importar">Importar planilha</button>
@@ -273,6 +291,72 @@
             <div class="ajuste-texto"><b id="f360-passo">Clique no mapa onde a foto foi tirada</b><span>Dá para aproximar o mapa antes de clicar.</span></div>
             <div class="ajuste-botoes"><button type="button" class="btn btn-ghost btn-sm2" id="f360-cancelar-marcar">Cancelar</button></div>
           </div>
+          <div id="poco-barra" class="ajuste-barra poco-barra" hidden>
+            <div class="ajuste-texto"><b id="poco-passo">Editar poço</b><span>Escolha a situação e, se precisar, arraste o pino, clique no mapa ou digite a coordenada (Enter aplica). <span id="poco-fuso"></span></span></div>
+            <div class="poco-campos">
+              <label>Situação<select id="poco-situacao"><option value="ATIVO">Ativo</option><option value="SECO">Seco</option><option value="DANIFICADO">Danificado/destruído</option><option value="DESATIVADO">Desativado</option></select></label>
+              <label>Latitude<input id="poco-lat" inputmode="decimal" autocomplete="off"></label>
+              <label>Longitude<input id="poco-lon" inputmode="decimal" autocomplete="off"></label>
+              <label>E (m)<input id="poco-e" inputmode="decimal" autocomplete="off"></label>
+              <label>N (m)<input id="poco-n" inputmode="decimal" autocomplete="off"></label>
+              <span id="poco-info" class="poco-info"></span>
+            </div>
+            <div class="ajuste-botoes">
+              <button type="button" class="btn btn-primary btn-sm2" id="poco-salvar" disabled>Salvar</button>
+              <button type="button" class="btn btn-ghost btn-sm2" id="poco-cancelar">Cancelar</button>
+            </div>
+          </div>
+          <div id="lim-barra" class="ajuste-barra" hidden>
+            <div class="ajuste-texto"><b>Editar linha da pluma</b><span id="lim-dica">Arraste os pontos brancos. Para criar um ponto, clique ou arraste a bolinha do meio de um trecho; para apagar, duplo clique (ou botão direito) no ponto. Clique num trecho para trocar entre contínuo e tracejado.</span></div>
+            <div class="ajuste-botoes lim-botoes">
+              <select id="lim-traco" class="lim-traco" title="Formato da linha"><option value="spline">Traço: spline (curva)</option><option value="reta">Traço: linha reta</option></select>
+              <button type="button" class="btn btn-ghost btn-sm2" id="lim-novo">Desenhar pluma nova</button>
+              <button type="button" class="btn btn-ghost btn-sm2" id="lim-fim" hidden>Concluir desenho</button>
+              <button type="button" class="btn btn-ghost btn-sm2" id="lim-limpar" title="Apaga as linhas e começa um desenho do zero">Apagar tudo e redesenhar</button>
+              <button type="button" class="btn btn-primary btn-sm2" id="lim-salvar">Salvar linha</button>
+              <button type="button" class="btn btn-ghost btn-sm2" id="lim-calculado">Voltar à calculada</button>
+              <button type="button" class="btn btn-ghost btn-sm2" id="lim-cancelar">Cancelar</button>
+            </div>
+          </div>
+          <div id="des-barra" class="ajuste-barra des-barra" hidden>
+            <div class="des-linha">
+              <div class="des-ferr" role="group" aria-label="Ferramenta">
+                <button type="button" class="des-btn" data-ferr="reta" aria-pressed="true" title="Clique ponto a ponto; duplo clique ou Concluir termina. Clicar no 1º ponto fecha a figura.">Reta</button>
+                <button type="button" class="des-btn" data-ferr="livre" aria-pressed="false" title="Segure e arraste para desenhar">Mão livre</button>
+                <button type="button" class="des-btn" data-ferr="medida" aria-pressed="false" title="Clique ponto a ponto: mostra cada trecho e o total. Clicar no 1º ponto fecha e mostra a área.">Medir</button>
+                <button type="button" class="des-btn" data-ferr="apagar" aria-pressed="false" title="Clique num desenho para apagá-lo">Borracha</button>
+              </div>
+              <div class="des-cores" role="group" aria-label="Cor">
+                <button type="button" class="des-cor" data-cor="#E0261B" style="--c:#E0261B" title="Vermelho" aria-pressed="true"></button>
+                <button type="button" class="des-cor" data-cor="#F28C18" style="--c:#F28C18" title="Laranja" aria-pressed="false"></button>
+                <button type="button" class="des-cor" data-cor="#FFD60A" style="--c:#FFD60A" title="Amarelo" aria-pressed="false"></button>
+                <button type="button" class="des-cor" data-cor="#2FB34A" style="--c:#2FB34A" title="Verde" aria-pressed="false"></button>
+                <button type="button" class="des-cor" data-cor="#1E6FE0" style="--c:#1E6FE0" title="Azul" aria-pressed="false"></button>
+                <button type="button" class="des-cor" data-cor="#FFFFFF" style="--c:#FFFFFF" title="Branco" aria-pressed="false"></button>
+                <button type="button" class="des-cor" data-cor="#111111" style="--c:#111111" title="Preto" aria-pressed="false"></button>
+                <label class="des-cor des-cor-livre" title="Outra cor"><input type="color" id="des-cor-livre" value="#9b30ff"></label>
+              </div>
+              <select id="des-esp" class="lim-traco" title="Espessura"><option value="2">Fina</option><option value="4" selected>Média</option><option value="7">Grossa</option></select>
+            </div>
+            <div class="des-linha">
+              <span id="des-dica" class="des-dica">Reta: clique ponto a ponto no mapa; duplo clique (ou Concluir) termina.</span>
+              <b id="des-medida" class="des-medida"></b>
+              <div class="ajuste-botoes">
+                <button type="button" class="btn btn-ghost btn-sm2" id="des-fim" hidden>Concluir traço</button>
+                <button type="button" class="btn btn-ghost btn-sm2" id="des-desfazer">Desfazer</button>
+                <button type="button" class="btn btn-ghost btn-sm2" id="des-limpar">Apagar tudo</button>
+                <button type="button" class="btn btn-primary btn-sm2" id="des-fechar">Fechar</button>
+              </div>
+            </div>
+          </div>
+          <div id="rot-barra" class="ajuste-barra" hidden>
+            <div class="ajuste-texto"><b>Ajustar rótulos</b><span>Arraste o nome (etiqueta escura) e o valor (etiqueta amarela) de cada poço. A posição vale para o mapa e para a prancha em PDF; longe do poço, sai uma linha de chamada.</span></div>
+            <div class="ajuste-botoes">
+              <button type="button" class="btn btn-primary btn-sm2" id="rot-concluir">Concluir</button>
+              <button type="button" class="btn btn-ghost btn-sm2" id="rot-padrao">Voltar ao padrão</button>
+              <button type="button" class="btn btn-ghost btn-sm2" id="rot-cancelar">Cancelar</button>
+            </div>
+          </div>
           <div id="mapa"></div>
           <div class="legenda">
             <span><i class="bola st-acima"></i>Acima do VI</span>
@@ -287,6 +371,7 @@
             <span class="leg-tit" id="leg-tit">Pluma (µg/L)</span>
             <span class="leg-rampa"><i id="leg-gradiente"></i><span id="leg-ticks" class="leg-ticks"></span></span>
             <span><i class="leg-limiar"></i><span id="leg-limiar">Limite</span></span>
+            <span><i class="leg-limiar leg-limiar-inf"></i>Limite de pluma inferida</span>
             <span><i class="leg-centro"></i>Centróide</span>
             <span><i class="leg-centro leg-centro-ini"></i>Centróide na 1ª campanha</span>
           </div>
@@ -303,7 +388,7 @@
       <section class="section" id="sec-secao" hidden>
         <div class="section-head"><span class="section-num">A</span><h2>Seção geológica A–A'</h2><span class="hint" id="secao-hint"></span></div>
         <div class="section-body">
-          <div class="secao-acoes"><button type="button" class="btn btn-ghost btn-sm2" id="btn-secao-3d">Ver em 3D</button><button type="button" class="btn btn-ghost btn-sm2" id="btn-secao-baixar">Baixar imagem (SVG)</button></div>
+          <div class="secao-acoes"><button type="button" class="btn btn-ghost btn-sm2" id="btn-secao-3d">Ver em 3D</button><button type="button" class="btn btn-ghost btn-sm2" id="btn-secao-baixar">Baixar imagem (SVG)</button><button type="button" class="btn btn-ghost btn-sm2" id="btn-secao-dxf" title="Abre no AutoCAD, BricsCAD, QGIS...">Baixar DXF</button></div>
           <div id="secao-desenho" class="secao-desenho"></div>
           <div class="legenda" id="secao-legenda"></div>
           <div class="legenda-nota" id="secao-nota"></div>
@@ -412,7 +497,10 @@
         <div class="section-body">
           <div class="imp-topo">
             <p class="imp-texto">Uma planilha por campanha, no formato da planilha modelo: poços, resultados do laboratório, nível d'água e litologia. Os dados vão para o <b>projeto</b> escrito na aba Projeto da planilha (se ficar em branco, para o projeto escolhido no menu), sempre dentro da sua empresa (<b id="imp-empresa">—</b>).</p>
-            <a class="btn btn-ghost" href="modelo/WebGeo_Modelo_Importacao.xlsx" download>Baixar planilha modelo</a>
+            <div class="imp-botoes">
+              <a class="btn btn-ghost" href="modelo/WebGeo_Modelo_Importacao.xlsx" download>Baixar planilha modelo</a>
+              <label class="btn btn-ghost" title="Escolha a planilha: a aba Pocos volta com latitude e longitude em graus (nada é gravado no banco)">Converter UTM em lat/long<input id="arquivo-utm" type="file" accept=".xlsx,.xls" hidden></label>
+            </div>
           </div>
           <label id="drop" class="drop">
             <input id="arquivo" type="file" accept=".xlsx,.xls">
@@ -458,6 +546,119 @@
       <div class="modal-acoes">
         <button type="button" class="btn btn-ghost" id="planta-cancelar">Cancelar</button>
         <button type="button" class="btn btn-primary" id="planta-confirmar" disabled>Inserir no mapa</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modo campo: painel de baixo -->
+<div id="campo-painel" class="campo-painel" hidden>
+  <div class="campo-topo">
+    <span id="campo-gps" class="campo-gps">GPS...</span>
+    <div class="campo-botoes">
+      <button type="button" class="btn btn-ghost btn-sm2" id="campo-eu">Onde estou</button>
+      <button type="button" class="btn btn-ghost btn-sm2" id="campo-recolher" aria-label="Recolher ou abrir a lista">Lista</button>
+      <button type="button" class="btn btn-ghost btn-sm2" id="campo-sair">Sair</button>
+    </div>
+  </div>
+  <div id="campo-alvo" class="campo-alvo" hidden>
+    <div class="campo-seta-caixa"><div id="campo-seta" class="campo-seta" aria-hidden="true">➤</div></div>
+    <div class="campo-alvo-txt"><b id="campo-alvo-nome">PM</b><span id="campo-alvo-dist"></span><small id="campo-seta-nota"></small></div>
+    <div class="campo-alvo-acoes"><button type="button" class="btn btn-primary btn-sm2" id="campo-alvo-ficha">Ficha</button><button type="button" class="btn-link" id="campo-alvo-limpar">parar</button></div>
+  </div>
+  <div class="campo-conta" id="campo-conta"></div>
+  <ul id="campo-lista" class="campo-lista"></ul>
+</div>
+
+<!-- Modo campo: ficha do poço -->
+<div class="modal-fundo" id="modal-campo" hidden>
+  <div class="modal-caixa modal-campo" role="dialog" aria-modal="true" aria-labelledby="cf-titulo">
+    <div class="modal-cab"><span id="cf-titulo">Ficha de campo</span>
+      <button type="button" class="modal-fechar" id="cf-fechar" aria-label="Fechar">✕</button></div>
+    <div class="modal-corpo">
+      <p class="excluir-nota" id="cf-campanha"></p>
+      <div class="cf-grade">
+        <div class="field"><label for="cf-achado">Poço</label><select id="cf-achado"><option value="sim">Localizado (confirmado)</option><option value="nao">Não localizado</option></select></div>
+        <div class="field"><label for="cf-situacao">Situação</label><select id="cf-situacao"><option value="ATIVO">Ativo</option><option value="SECO">Seco</option><option value="DANIFICADO">Danificado/destruído</option><option value="DESATIVADO">Desativado</option></select></div>
+        <div class="field"><label for="cf-na">N.A. (m)</label><input id="cf-na" inputmode="decimal" placeholder="ex.: 3,45" autocomplete="off"></div>
+        <div class="field cf-fl"><label class="chk"><input type="checkbox" id="cf-fl"><span class="box"></span>Fase livre</label>
+          <div id="cf-esp-linha" hidden><input id="cf-esp" inputmode="decimal" placeholder="espessura (m)" autocomplete="off"></div></div>
+        <div class="field cf-largo"><label for="cf-desc">Descrição / observação</label><textarea id="cf-desc" rows="3" placeholder="ex.: tampa quebrada, poço dentro de área cercada..."></textarea>
+          <span class="excluir-nota" id="cf-obs-atual"></span></div>
+        <div class="field cf-largo" id="cf-gps-linha"><label class="chk"><input type="checkbox" id="cf-gps"><span class="box"></span><span id="cf-gps-txt">Corrigir a coordenada com o GPS</span></label></div>
+        <div class="field cf-largo"><label for="cf-fotos">Fotos</label>
+          <input type="file" id="cf-fotos" accept="image/*" capture="environment" multiple>
+          <span class="excluir-nota" id="cf-fotos-novas"></span>
+          <div id="cf-galeria" class="cf-galeria"></div></div>
+      </div>
+      <div class="auth-error" id="cf-erro" hidden></div>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-ghost" id="cf-cancelar">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="cf-salvar">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Prancha A3 em PDF -->
+<div class="modal-fundo previa-fundo" id="modal-previa" hidden>
+  <div class="previa-caixa" role="dialog" aria-modal="true" aria-labelledby="previa-tit">
+    <div class="previa-cab">
+      <span id="previa-tit"><b>Visualização da prancha A3</b> <small id="previa-nome"></small></span>
+      <div class="previa-botoes">
+        <button type="button" class="btn btn-ghost btn-sm2" id="previa-voltar">Voltar e ajustar</button>
+        <span class="previa-zoom"><button type="button" class="btn btn-ghost btn-sm2" id="previa-menos" aria-label="Diminuir">−</button><button type="button" class="btn btn-ghost btn-sm2" id="previa-ajustar" title="Caber na tela">Caber</button><button type="button" class="btn btn-ghost btn-sm2" id="previa-mais" aria-label="Aumentar">+</button></span>
+        <a class="btn btn-ghost btn-sm2" id="previa-aba" target="_blank" rel="noopener">Abrir em nova aba</a>
+        <button type="button" class="btn btn-ghost btn-sm2" id="previa-imprimir">Imprimir</button>
+        <button type="button" class="btn btn-primary btn-sm2" id="previa-baixar">Baixar PDF</button>
+        <button type="button" class="modal-fechar" id="previa-fechar" aria-label="Fechar">✕</button>
+      </div>
+    </div>
+    <p class="previa-aviso" id="previa-aviso" hidden></p>
+    <div id="previa-quadro" class="previa-quadro"><p class="previa-carregando">Desenhando a folha...</p></div>
+  </div>
+</div>
+
+<div class="modal-fundo" id="modal-prancha" hidden>
+  <div class="modal-caixa modal-prancha" role="dialog" aria-modal="true" aria-labelledby="modal-prancha-tit">
+    <div class="modal-cab"><span id="modal-prancha-tit">Prancha A3 (PDF)</span>
+      <button type="button" class="modal-fechar" id="pr-fechar" aria-label="Fechar">✕</button></div>
+    <div class="modal-corpo">
+      <p class="excluir-nota">Folha A3 deitada: desenho à esquerda; rosa dos ventos, legenda, notas e carimbo com o logo à direita. O mapa sai com a vista que está na tela (aproxime ou afaste antes). Os campos ficam lembrados neste navegador, por projeto.</p>
+      <div class="pr-grade">
+        <div class="field pr-largo"><label for="pr-conteudo">Desenho</label><select id="pr-conteudo"></select></div>
+        <div class="pr-largo pr-opc" id="pr-opc-mapa">
+          <div class="field"><label for="pr-enquadrar">Centralizar em</label>
+            <select id="pr-enquadrar"><option value="pocos">Todos os poços</option><option value="pluma">Pluma</option><option value="planta">Planta (área de estudo)</option><option value="vista">Vista atual do mapa</option></select></div>
+          <div class="field"><label for="pr-escala">Escala</label>
+            <div class="pr-escala-linha"><select id="pr-escala"><option value="0">Automática (cabe tudo)</option><option value="250">1:250</option><option value="500">1:500</option><option value="750">1:750</option><option value="1000">1:1.000</option><option value="1500">1:1.500</option><option value="2000">1:2.000</option><option value="2500">1:2.500</option><option value="5000">1:5.000</option><option value="10000">1:10.000</option><option value="outra">Outra...</option></select>
+            <input id="pr-escala-n" inputmode="numeric" placeholder="ex.: 1250" hidden></div></div>
+        </div>
+        <div class="pr-largo pr-rot" id="pr-opc-rot">
+          <label class="chk"><input type="checkbox" id="pr-valores" checked><span class="box"></span>Valores dos resultados embaixo de cada poço</label>
+          <button type="button" class="btn btn-ghost btn-sm2" id="pr-rotulos" title="Arraste no mapa o nome e o valor de cada poço">Ajustar posição dos rótulos</button>
+        </div>
+        <div class="field pr-largo"><label for="pr-titulo">Título do desenho</label><input id="pr-titulo"></div>
+        <div class="field pr-largo"><label for="pr-relatorio">Relatório</label><input id="pr-relatorio"></div>
+        <div class="field"><label for="pr-projeto">Projeto</label><input id="pr-projeto"></div>
+        <div class="field"><label for="pr-data">Data</label><input id="pr-data" placeholder="mm/aaaa"></div>
+        <div class="field pr-largo"><label for="pr-endereco">Endereço</label><input id="pr-endereco" placeholder="Rua, nº, bairro - cidade/UF"></div>
+        <div class="field pr-largo"><label for="pr-contratante">Contratante</label><input id="pr-contratante"></div>
+        <div class="field"><label for="pr-responsavel">Responsável técnico</label><input id="pr-responsavel" placeholder="Nome - CREA"></div>
+        <div class="field"><label for="pr-folha">Folha</label><input id="pr-folha" placeholder="01/01"></div>
+        <div class="field pr-largo pr-logo">
+          <label>Logo da empresa</label>
+          <div class="pr-logo-linha"><div id="pr-logo-ver" class="pr-logo-ver"></div>
+            <label class="btn btn-ghost btn-sm2">Escolher imagem<input type="file" id="pr-logo" accept="image/png,image/jpeg,image/webp" hidden></label>
+            <button type="button" class="btn-mini btn-mini-perigo" id="pr-logo-tirar" hidden>tirar</button></div>
+          <span class="excluir-nota">PNG com fundo transparente fica melhor. Sem logo, o carimbo leva o nome da empresa: <input id="pr-empresa" class="pr-empresa"></span>
+        </div>
+      </div>
+      <p id="pr-status" class="pr-status" role="status"></p>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-ghost" id="pr-cancelar">Fechar</button>
+        <button type="button" class="btn btn-ghost" id="pr-gerar">Baixar PDF direto</button>
+        <button type="button" class="btn btn-primary" id="pr-visualizar">Visualizar</button>
       </div>
     </div>
   </div>
@@ -612,5 +813,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<script src="script.js"></script>
+<script src="config.js"></script>
+<script src="script.js?v=20261109-2200"></script>
 </html>
